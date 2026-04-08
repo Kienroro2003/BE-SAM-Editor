@@ -17,13 +17,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Comparator;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -101,7 +103,7 @@ class WorkspaceServiceTest {
     }
 
     @Test
-    void importFromGithub_ShouldThrow_WhenContainsBlacklistedDirectory() {
+    void importFromGithub_ShouldSkipBlacklistedDirectory() {
         User user = new User();
         user.setId(1L);
         user.setEmail("user@test.com");
@@ -111,12 +113,54 @@ class WorkspaceServiceTest {
                 .thenReturn(List.of(
                         new GithubRepositoryTreeClient.GithubContentItem("node_modules", "dir", 0L)
                 ));
+        when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> {
+            Project project = invocation.getArgument(0);
+            project.setId(100L);
+            return project;
+        });
+        when(workspaceSourceStorageService.cloneGithubRepository(1L, 100L, "https://github.com/owner/repo.git"))
+                .thenReturn("/tmp/workspace-storage/user-1/project-100");
 
-        assertThrows(WorkspacePayloadTooLargeException.class,
-                () -> workspaceService.importFromGithub("https://github.com/owner/repo", "user@test.com"));
+        ImportGithubWorkspaceResponse response =
+                workspaceService.importFromGithub("https://github.com/owner/repo", "user@test.com");
 
-        verify(projectRepository, never()).save(any(Project.class));
+        assertEquals(100L, response.getProjectId());
+        assertEquals(0, response.getTotalFiles());
+        assertEquals(0L, response.getTotalSizeBytes());
+        verify(projectRepository, atLeastOnce()).save(any(Project.class));
         verify(sourceFileRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    void importFromGithub_ShouldSkipBlacklistedFileName() {
+        User user = new User();
+        user.setId(1L);
+        user.setEmail("user@test.com");
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(githubRepositoryTreeClient.listDirectory("owner", "repo", ""))
+                .thenReturn(List.of(
+                        new GithubRepositoryTreeClient.GithubContentItem("dist", "file", 10L),
+                        new GithubRepositoryTreeClient.GithubContentItem("README.md", "file", 5L)
+                ));
+        when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> {
+            Project project = invocation.getArgument(0);
+            project.setId(100L);
+            return project;
+        });
+        when(workspaceSourceStorageService.cloneGithubRepository(1L, 100L, "https://github.com/owner/repo.git"))
+                .thenReturn("/tmp/workspace-storage/user-1/project-100");
+
+        ImportGithubWorkspaceResponse response =
+                workspaceService.importFromGithub("https://github.com/owner/repo", "user@test.com");
+
+        assertEquals(1, response.getTotalFiles());
+        assertEquals(5L, response.getTotalSizeBytes());
+        ArgumentCaptor<List<SourceFile>> filesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(sourceFileRepository).saveAll(filesCaptor.capture());
+        List<SourceFile> savedFiles = filesCaptor.getValue();
+        assertEquals(1, savedFiles.size());
+        assertEquals("README.md", savedFiles.get(0).getFilePath());
     }
 
     @Test
@@ -157,73 +201,120 @@ class WorkspaceServiceTest {
     }
 
     @Test
-    void importFromLocalFolder_ShouldSaveProjectAndSourceFiles() throws IOException {
-        Path rootFolder = Files.createTempDirectory("workspace-local-import-");
-        try {
-            Files.writeString(rootFolder.resolve("README.md"), "# Local Workspace");
-            Files.createDirectories(rootFolder.resolve("src"));
-            Files.writeString(rootFolder.resolve("src/App.java"), "class App {}");
+    void importFromZip_ShouldSaveProjectAndSourceFiles() throws IOException {
+        MockMultipartFile zipFile = createZipFile("sample.zip", List.of(
+                new ZipEntryData("README.md", "# Local Workspace"),
+                new ZipEntryData("src/App.java", "class App {}")
+        ));
 
-            User user = new User();
-            user.setId(1L);
-            user.setEmail("user@test.com");
+        User user = new User();
+        user.setId(1L);
+        user.setEmail("user@test.com");
 
-            when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
-            when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> {
-                Project project = invocation.getArgument(0);
-                project.setId(100L);
-                return project;
-            });
-            when(workspaceSourceStorageService.copyLocalFolder(1L, 100L, rootFolder.toAbsolutePath().normalize()))
-                    .thenReturn("/tmp/workspace-storage/user-1/project-100");
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> {
+            Project project = invocation.getArgument(0);
+            project.setId(100L);
+            return project;
+        });
+        when(workspaceSourceStorageService.extractZipArchive(1L, 100L, zipFile))
+                .thenReturn("/tmp/workspace-storage/user-1/project-100");
 
-            ImportGithubWorkspaceResponse response =
-                    workspaceService.importFromLocalFolder(rootFolder.toString(), "local-project", "user@test.com");
+        ImportGithubWorkspaceResponse response =
+                workspaceService.importFromZip(zipFile, "local-project", "user@test.com");
 
-            assertEquals(100L, response.getProjectId());
-            assertEquals("local-project", response.getName());
-            assertEquals(2, response.getTotalFiles());
-            assertTrue(response.getTotalSizeBytes() > 0L);
-            verify(workspaceSourceStorageService)
-                    .copyLocalFolder(1L, 100L, rootFolder.toAbsolutePath().normalize());
+        assertEquals(100L, response.getProjectId());
+        assertEquals("local-project", response.getName());
+        assertEquals(2, response.getTotalFiles());
+        assertTrue(response.getTotalSizeBytes() > 0L);
+        verify(workspaceSourceStorageService)
+                .extractZipArchive(1L, 100L, zipFile);
 
-            ArgumentCaptor<Project> projectCaptor = ArgumentCaptor.forClass(Project.class);
-            verify(projectRepository, atLeastOnce()).save(projectCaptor.capture());
-            assertTrue(projectCaptor.getAllValues().stream()
-                    .anyMatch(p -> p.getSourceType() == ProjectSourceType.LOCAL_FOLDER));
+        ArgumentCaptor<Project> projectCaptor = ArgumentCaptor.forClass(Project.class);
+        verify(projectRepository, atLeastOnce()).save(projectCaptor.capture());
+        assertTrue(projectCaptor.getAllValues().stream()
+                .anyMatch(p -> p.getSourceType() == ProjectSourceType.LOCAL_FOLDER));
 
-            ArgumentCaptor<List<SourceFile>> filesCaptor = ArgumentCaptor.forClass(List.class);
-            verify(sourceFileRepository).saveAll(filesCaptor.capture());
-            List<SourceFile> savedFiles = filesCaptor.getValue();
-            assertEquals(2, savedFiles.size());
-            assertTrue(savedFiles.stream().anyMatch(file -> "README.md".equals(file.getFilePath()) && "MARKDOWN".equals(file.getLanguage())));
-            assertTrue(savedFiles.stream().anyMatch(file -> "src/App.java".equals(file.getFilePath()) && "JAVA".equals(file.getLanguage())));
-        } finally {
-            deleteDirectory(rootFolder);
-        }
+        ArgumentCaptor<List<SourceFile>> filesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(sourceFileRepository).saveAll(filesCaptor.capture());
+        List<SourceFile> savedFiles = filesCaptor.getValue();
+        assertEquals(2, savedFiles.size());
+        assertTrue(savedFiles.stream().anyMatch(file -> "README.md".equals(file.getFilePath()) && "MARKDOWN".equals(file.getLanguage())));
+        assertTrue(savedFiles.stream().anyMatch(file -> "src/App.java".equals(file.getFilePath()) && "JAVA".equals(file.getLanguage())));
     }
 
     @Test
-    void importFromLocalFolder_ShouldThrow_WhenContainsBlacklistedDirectory() throws IOException {
-        Path rootFolder = Files.createTempDirectory("workspace-local-import-blacklist-");
-        try {
-            Path blacklistedDir = rootFolder.resolve("node_modules");
-            Files.createDirectories(blacklistedDir);
-            Files.writeString(blacklistedDir.resolve("index.js"), "module.exports = {};");
+    void importFromZip_ShouldSkip_WhenContainsBlacklistedDirectory() throws IOException {
+        MockMultipartFile zipFile = createZipFile("sample.zip", List.of(
+                new ZipEntryData("node_modules/index.js", "module.exports = {};"),
+                new ZipEntryData("README.md", "keep")
+        ));
 
-            User user = new User();
-            user.setId(1L);
-            user.setEmail("user@test.com");
-            when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        User user = new User();
+        user.setId(1L);
+        user.setEmail("user@test.com");
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> {
+            Project project = invocation.getArgument(0);
+            project.setId(100L);
+            return project;
+        });
+        when(workspaceSourceStorageService.extractZipArchive(1L, 100L, zipFile))
+                .thenReturn("/tmp/workspace-storage/user-1/project-100");
 
-            assertThrows(WorkspacePayloadTooLargeException.class,
-                    () -> workspaceService.importFromLocalFolder(rootFolder.toString(), "local-project", "user@test.com"));
+        ImportGithubWorkspaceResponse response =
+                workspaceService.importFromZip(zipFile, "local-project", "user@test.com");
 
-            verify(projectRepository, never()).save(any(Project.class));
-            verify(sourceFileRepository, never()).saveAll(anyList());
-        } finally {
-            deleteDirectory(rootFolder);
-        }
+        assertEquals(1, response.getTotalFiles());
+        ArgumentCaptor<List<SourceFile>> filesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(sourceFileRepository).saveAll(filesCaptor.capture());
+        List<SourceFile> savedFiles = filesCaptor.getValue();
+        assertEquals(1, savedFiles.size());
+        assertEquals("README.md", savedFiles.get(0).getFilePath());
+    }
+
+    @Test
+    void importFromZip_ShouldThrow_WhenZipContainsPathTraversal() throws IOException {
+        MockMultipartFile zipFile = createZipFile("sample.zip", List.of(
+                new ZipEntryData("../evil.js", "alert('x');")
+        ));
+
+        User user = new User();
+        user.setId(1L);
+        user.setEmail("user@test.com");
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> workspaceService.importFromZip(zipFile, "local-project", "user@test.com"));
+        assertTrue(exception.getMessage().contains("invalid entry path"));
+
+        verify(projectRepository, never()).save(any(Project.class));
+        verify(sourceFileRepository, never()).saveAll(anyList());
+        verify(workspaceSourceStorageService, never()).extractZipArchive(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void importFromZip_ShouldThrow_WhenSizeExceedsLimit() throws IOException {
+        workspaceService = new WorkspaceService(
+                userRepository,
+                projectRepository,
+                sourceFileRepository,
+                githubRepositoryTreeClient,
+                workspaceSourceStorageService,
+                10L,
+                ".git,node_modules,target,dist,build,.idea,.vscode"
+        );
+        MockMultipartFile zipFile = createZipFile("sample.zip", List.of(
+                new ZipEntryData("big.txt", "01234567890")
+        ));
+
+        User user = new User();
+        user.setId(1L);
+        user.setEmail("user@test.com");
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+
+        assertThrows(WorkspacePayloadTooLargeException.class,
+                () -> workspaceService.importFromZip(zipFile, "local-project", "user@test.com"));
     }
 
     @Test
@@ -274,19 +365,19 @@ class WorkspaceServiceTest {
         assertThrows(NotFoundException.class, () -> workspaceService.getWorkspaceTree(22L, "user@test.com"));
     }
 
-    private void deleteDirectory(Path path) throws IOException {
-        if (path == null || !Files.exists(path)) {
-            return;
+    private MockMultipartFile createZipFile(String filename, List<ZipEntryData> entries) throws IOException {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        try (ZipOutputStream zipOutputStream = new ZipOutputStream(byteArrayOutputStream)) {
+            for (ZipEntryData entryData : entries) {
+                ZipEntry entry = new ZipEntry(entryData.path());
+                zipOutputStream.putNextEntry(entry);
+                zipOutputStream.write(entryData.content().getBytes(StandardCharsets.UTF_8));
+                zipOutputStream.closeEntry();
+            }
         }
-        try (var walk = Files.walk(path)) {
-            walk.sorted(Comparator.reverseOrder())
-                    .forEach(p -> {
-                        try {
-                            Files.deleteIfExists(p);
-                        } catch (IOException ignored) {
-                            // best effort for temp test folders
-                        }
-                    });
-        }
+        return new MockMultipartFile("file", filename, "application/zip", byteArrayOutputStream.toByteArray());
+    }
+
+    private record ZipEntryData(String path, String content) {
     }
 }

@@ -594,6 +594,18 @@
           "name": "Import Local Folder Workspace",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const zipPath = pm.environment.get('localWorkspaceZipPath');",
+                  "if (!zipPath) {",
+                  "  throw new Error('localWorkspaceZipPath is empty. Set path to a .zip file in environment.');",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -623,20 +635,21 @@
               ]
             },
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+            "header": [],
             "body": {
-              "mode": "raw",
-              "raw": "{\n  \"folderPath\": \"{{folderPath}}\",\n  \"workspaceName\": \"{{localWorkspaceName}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{localWorkspaceZipPath}}"
+                },
+                {
+                  "key": "workspaceName",
+                  "value": "{{localWorkspaceName}}",
+                  "type": "text"
                 }
-              }
+              ]
             },
             "url": {
               "raw": "{{baseUrl}}/api/workspaces/import/folder",

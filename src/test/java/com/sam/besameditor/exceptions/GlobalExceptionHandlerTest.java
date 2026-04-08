@@ -8,6 +8,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.core.MethodParameter;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.ObjectError;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 
@@ -27,6 +30,15 @@ class GlobalExceptionHandlerTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("invalid", response.getBody().get("message"));
+    }
+
+    @Test
+    void handleIllegalArgument_ShouldUseFallbackMessage_WhenMessageIsNull() {
+        ResponseEntity<Map<String, String>> response =
+                exceptionHandler.handleIllegalArgument(new IllegalArgumentException());
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("Invalid request", response.getBody().get("message"));
     }
 
     @Test
@@ -54,6 +66,15 @@ class GlobalExceptionHandlerTest {
 
         assertEquals(HttpStatus.PAYLOAD_TOO_LARGE, response.getStatusCode());
         assertEquals("too large", response.getBody().get("message"));
+    }
+
+    @Test
+    void handleMaxUploadSize_ShouldReturn413() {
+        ResponseEntity<Map<String, String>> response =
+                exceptionHandler.handleMaxUploadSize(new MaxUploadSizeExceededException(1024));
+
+        assertEquals(HttpStatus.PAYLOAD_TOO_LARGE, response.getStatusCode());
+        assertEquals("Uploaded file exceeds allowed size", response.getBody().get("message"));
     }
 
     @Test
@@ -123,6 +144,16 @@ class GlobalExceptionHandlerTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("Validation error", response.getBody().get("message"));
+    }
+
+    @Test
+    void handleHttpMessageNotReadable_ShouldReturnBadRequest() {
+        ResponseEntity<Map<String, String>> response =
+                exceptionHandler.handleHttpMessageNotReadable(
+                        new HttpMessageNotReadableException("bad json", new MockHttpInputMessage(new byte[0])));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("Invalid JSON request body", response.getBody().get("message"));
     }
 
     @SuppressWarnings("unused")

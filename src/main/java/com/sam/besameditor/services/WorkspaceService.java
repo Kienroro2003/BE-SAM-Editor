@@ -17,8 +17,10 @@ import com.sam.besameditor.repositories.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,6 +30,8 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 @Service
 public class WorkspaceService {
@@ -123,6 +127,36 @@ public class WorkspaceService {
                 localImportResult.totalSizeBytes());
     }
 
+    @Transactional
+    public ImportGithubWorkspaceResponse importFromZip(MultipartFile zipFile, String workspaceName, String userEmail) {
+        User user = findUserByEmail(userEmail);
+        ZipImportDescriptor zipImportDescriptor = parseZipUpload(zipFile, workspaceName);
+        LocalImportResult localImportResult = collectFilesFromZipArchive(zipFile);
+
+        Project project = new Project();
+        project.setUser(user);
+        project.setName(zipImportDescriptor.workspaceName());
+        project.setSourceType(ProjectSourceType.LOCAL_FOLDER);
+        project.setSourceUrl(zipImportDescriptor.sourceUrl());
+        Project savedProject = projectRepository.save(project);
+
+        String storagePath = workspaceSourceStorageService.extractZipArchive(
+                user.getId(),
+                savedProject.getId(),
+                zipFile);
+        savedProject.setStoragePath(storagePath);
+        projectRepository.save(savedProject);
+
+        persistSourceFiles(savedProject, localImportResult.snapshots());
+
+        return new ImportGithubWorkspaceResponse(
+                savedProject.getId(),
+                savedProject.getName(),
+                savedProject.getSourceUrl(),
+                localImportResult.snapshots().size(),
+                localImportResult.totalSizeBytes());
+    }
+
     @Transactional(readOnly = true)
     public List<WorkspaceSummaryResponse> getUserWorkspaces(String userEmail) {
         User user = findUserByEmail(userEmail);
@@ -166,8 +200,7 @@ public class WorkspaceService {
             String type = item.type() == null ? "" : item.type().toLowerCase(Locale.ROOT);
             if ("dir".equals(type)) {
                 if (containsBlacklistedDir(normalizedPath)) {
-                    throw new WorkspacePayloadTooLargeException(
-                            "Workspace import rejected: repository contains blacklisted directory in path '" + normalizedPath + "'.");
+                    continue;
                 }
                 collectFilesRecursive(owner, repo, normalizedPath, snapshots, totalSize);
                 continue;
@@ -176,10 +209,8 @@ public class WorkspaceService {
                 continue;
             }
 
-            String parentPath = extractParentPath(normalizedPath);
-            if (!parentPath.isBlank() && containsBlacklistedDir(parentPath)) {
-                throw new WorkspacePayloadTooLargeException(
-                        "Workspace import rejected: repository contains blacklisted directory in path '" + normalizedPath + "'.");
+            if (containsBlacklistedDir(normalizedPath)) {
+                continue;
             }
 
             long fileSize = item.size() == null ? 0L : Math.max(item.size(), 0L);
@@ -207,8 +238,7 @@ public class WorkspaceService {
 
                     String relativeDir = normalizePath(rootFolder.relativize(dir).toString());
                     if (containsBlacklistedDir(relativeDir)) {
-                        throw new WorkspacePayloadTooLargeException(
-                                "Workspace import rejected: repository contains blacklisted directory in path '" + relativeDir + "'.");
+                        return FileVisitResult.SKIP_SUBTREE;
                     }
                     return FileVisitResult.CONTINUE;
                 }
@@ -224,10 +254,8 @@ public class WorkspaceService {
                         return FileVisitResult.CONTINUE;
                     }
 
-                    String parentPath = extractParentPath(relativeFile);
-                    if (!parentPath.isBlank() && containsBlacklistedDir(parentPath)) {
-                        throw new WorkspacePayloadTooLargeException(
-                                "Workspace import rejected: repository contains blacklisted directory in path '" + relativeFile + "'.");
+                    if (containsBlacklistedDir(relativeFile)) {
+                        return FileVisitResult.CONTINUE;
                     }
 
                     long fileSize = Math.max(attrs.size(), 0L);
@@ -245,6 +273,77 @@ public class WorkspaceService {
             throw ex;
         } catch (IOException ex) {
             throw new IllegalArgumentException("Unable to read source folder at path '" + rootFolder + "'.", ex);
+        }
+
+        return new LocalImportResult(snapshots, totalSize[0]);
+    }
+
+    private LocalImportResult collectFilesFromZipArchive(MultipartFile zipFile) {
+        List<SourceFileSnapshot> snapshots = new ArrayList<>();
+        long[] totalSize = new long[]{0L};
+        Path tempZipFile = null;
+        try {
+            tempZipFile = Files.createTempFile("workspace-upload-", ".zip");
+            try (InputStream uploadStream = zipFile.getInputStream()) {
+                Files.copy(uploadStream, tempZipFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            try (ZipFile parsedZip = new ZipFile(tempZipFile.toFile())) {
+                Enumeration<? extends ZipEntry> entries = parsedZip.entries();
+                byte[] buffer = new byte[8192];
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    String normalizedPath = normalizeArchiveEntryName(entry.getName());
+                    if (normalizedPath.isBlank()) {
+                        continue;
+                    }
+
+                    Path relativePath = Path.of(normalizedPath).normalize();
+                    if (relativePath.getNameCount() == 0) {
+                        continue;
+                    }
+                    if (relativePath.isAbsolute() || startsWithParentTraversal(relativePath)) {
+                        throw new IllegalArgumentException("ZIP contains invalid entry path: '" + normalizedPath + "'.");
+                    }
+
+                    if (containsBlacklistedDir(normalizedPath)) {
+                        continue;
+                    }
+
+                    if (entry.isDirectory()) {
+                        continue;
+                    }
+
+                    long entrySize = 0L;
+                    try (InputStream entryInputStream = parsedZip.getInputStream(entry)) {
+                        int read;
+                        while ((read = entryInputStream.read(buffer)) != -1) {
+                            entrySize += read;
+                            long nextSize = totalSize[0] + read;
+                            if (nextSize > maxSizeBytes) {
+                                throw new WorkspacePayloadTooLargeException(
+                                        "Workspace import rejected: repository size exceeds limit of " + maxSizeBytes + " bytes.");
+                            }
+                            totalSize[0] = nextSize;
+                        }
+                    }
+
+                    if (entrySize > 0 || !normalizedPath.isBlank()) {
+                        snapshots.add(new SourceFileSnapshot(normalizedPath, detectLanguage(normalizedPath)));
+                    }
+                }
+            }
+        } catch (WorkspacePayloadTooLargeException ex) {
+            throw ex;
+        } catch (IllegalArgumentException ex) {
+            throw ex;
+        } catch (IOException ex) {
+            String detail = ex.getMessage() == null || ex.getMessage().isBlank()
+                    ? "Unknown ZIP parsing error"
+                    : ex.getMessage();
+            throw new IllegalArgumentException("Unable to read uploaded ZIP file: " + detail, ex);
+        } finally {
+            deleteTempFileIfExists(tempZipFile);
         }
 
         return new LocalImportResult(snapshots, totalSize[0]);
@@ -374,6 +473,32 @@ public class WorkspaceService {
         return new RepoDescriptor(owner, repo, canonicalUrl, cloneUrl);
     }
 
+    private ZipImportDescriptor parseZipUpload(MultipartFile zipFile, String rawWorkspaceName) {
+        if (zipFile == null || zipFile.isEmpty()) {
+            throw new IllegalArgumentException("file is required");
+        }
+
+        String originalFilename = zipFile.getOriginalFilename();
+        String normalizedFilename = normalizeUploadedFilename(originalFilename);
+        if (!normalizedFilename.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+            throw new IllegalArgumentException("Only .zip files are supported");
+        }
+
+        String workspaceName = rawWorkspaceName == null ? "" : rawWorkspaceName.trim();
+        if (workspaceName.length() > 255) {
+            throw new IllegalArgumentException("workspaceName must be at most 255 characters");
+        }
+        if (workspaceName.isBlank()) {
+            workspaceName = normalizedFilename.substring(0, normalizedFilename.length() - 4).trim();
+            if (workspaceName.isBlank()) {
+                workspaceName = "uploaded-workspace";
+            }
+        }
+
+        String sourceUrl = "upload://" + normalizedFilename;
+        return new ZipImportDescriptor(workspaceName, sourceUrl);
+    }
+
     private String normalizePath(String path) {
         if (path == null) {
             return "";
@@ -384,6 +509,25 @@ public class WorkspaceService {
         }
         while (normalized.endsWith("/")) {
             normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
+    }
+
+    private String normalizeArchiveEntryName(String entryName) {
+        return normalizePath(entryName);
+    }
+
+    private String normalizeUploadedFilename(String filename) {
+        if (filename == null || filename.isBlank()) {
+            return "workspace.zip";
+        }
+        String normalized = filename.replace("\\", "/").trim();
+        int lastSlash = normalized.lastIndexOf('/');
+        if (lastSlash >= 0) {
+            normalized = normalized.substring(lastSlash + 1);
+        }
+        if (normalized.isBlank()) {
+            return "workspace.zip";
         }
         return normalized;
     }
@@ -422,6 +566,21 @@ public class WorkspaceService {
         return false;
     }
 
+    private boolean startsWithParentTraversal(Path path) {
+        return path.getNameCount() > 0 && "..".equals(path.getName(0).toString());
+    }
+
+    private void deleteTempFileIfExists(Path path) {
+        if (path == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ignored) {
+            // best effort cleanup
+        }
+    }
+
     private String detectLanguage(String filePath) {
         String lower = filePath.toLowerCase(Locale.ROOT);
         if (lower.endsWith(".java")) return "JAVA";
@@ -442,6 +601,9 @@ public class WorkspaceService {
     }
 
     private record LocalImportResult(List<SourceFileSnapshot> snapshots, long totalSizeBytes) {
+    }
+
+    private record ZipImportDescriptor(String workspaceName, String sourceUrl) {
     }
 
     private record SourceFileSnapshot(String filePath, String language) {
