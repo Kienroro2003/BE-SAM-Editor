@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriUtils;
@@ -21,13 +22,18 @@ public class GithubContentsApiClient implements GithubRepositoryTreeClient {
 
     public GithubContentsApiClient(
             WebClient.Builder webClientBuilder,
-            @Value("${app.github.api-base:https://api.github.com}") String githubApiBase) {
-        this.webClient = webClientBuilder
+            @Value("${app.github.api-base:https://api.github.com}") String githubApiBase,
+            @Value("${app.github.token:}") String githubToken) {
+        WebClient.Builder builder = webClientBuilder
                 .baseUrl(githubApiBase)
                 .defaultHeader("Accept", "application/vnd.github+json")
                 .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
-                .defaultHeader("User-Agent", "BE-SAM-Editor")
-                .build();
+                .defaultHeader("User-Agent", "BE-SAM-Editor");
+
+        if (StringUtils.hasText(githubToken)) {
+            builder.defaultHeader("Authorization", "Bearer " + githubToken.trim());
+        }
+        this.webClient = builder.build();
     }
 
     @Override

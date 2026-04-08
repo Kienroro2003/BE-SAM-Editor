@@ -25,7 +25,12 @@
                   "}",
                   "if (!pm.environment.get('password')) {",
                   "  pm.environment.set('password', 'P@ssw0rd123');",
-                  "}"
+                  "}",
+                  "pm.environment.unset('accessToken');",
+                  "pm.environment.unset('refreshToken');",
+                  "pm.environment.set('tokenType', 'Bearer');",
+                  "pm.environment.unset('projectId');",
+                  "pm.environment.unset('workspaceName');"
                 ]
               }
             },
@@ -86,6 +91,10 @@
                 "exec": [
                   "pm.test('Status code is 200', function () {",
                   "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('Response has message', function () {",
+                  "  pm.expect(body.message).to.be.a('string');",
                   "});"
                 ]
               }
@@ -125,6 +134,11 @@
                   "  pm.response.to.have.status(200);",
                   "});",
                   "const body = pm.response.json();",
+                  "pm.test('Response contains token pair', function () {",
+                  "  pm.expect(body.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.refreshToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.tokenType).to.eql('Bearer');",
+                  "});",
                   "if (body.accessToken) pm.environment.set('accessToken', body.accessToken);",
                   "if (body.refreshToken) pm.environment.set('refreshToken', body.refreshToken);",
                   "if (body.email) pm.environment.set('email', body.email);",
@@ -177,6 +191,11 @@
                   "  pm.response.to.have.status(200);",
                   "});",
                   "const body = pm.response.json();",
+                  "pm.test('Response contains token pair', function () {",
+                  "  pm.expect(body.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.refreshToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.tokenType).to.eql('Bearer');",
+                  "});",
                   "if (body.accessToken) pm.environment.set('accessToken', body.accessToken);",
                   "if (body.refreshToken) pm.environment.set('refreshToken', body.refreshToken);",
                   "if (body.email) pm.environment.set('email', body.email);",
@@ -266,6 +285,19 @@
           "name": "Refresh Token",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const currentRefreshToken = pm.environment.get('refreshToken');",
+                  "if (!currentRefreshToken) {",
+                  "  throw new Error('refreshToken is empty. Run Verify OTP or Login first.');",
+                  "}",
+                  "pm.variables.set('previousRefreshToken', currentRefreshToken);"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -274,6 +306,17 @@
                   "  pm.response.to.have.status(200);",
                   "});",
                   "const body = pm.response.json();",
+                  "pm.test('Response contains token pair', function () {",
+                  "  pm.expect(body.accessToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.refreshToken).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.tokenType).to.eql('Bearer');",
+                  "});",
+                  "const previousRefreshToken = pm.variables.get('previousRefreshToken');",
+                  "if (previousRefreshToken) {",
+                  "  pm.test('Refresh token is rotated', function () {",
+                  "    pm.expect(body.refreshToken).to.not.eql(previousRefreshToken);",
+                  "  });",
+                  "}",
                   "if (body.accessToken) pm.environment.set('accessToken', body.accessToken);",
                   "if (body.refreshToken) pm.environment.set('refreshToken', body.refreshToken);",
                   "if (body.tokenType) pm.environment.set('tokenType', body.tokenType);"
@@ -316,6 +359,20 @@
           "name": "Logout",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('accessToken')) {",
+                  "  throw new Error('accessToken is empty. Run Verify OTP or Login first.');",
+                  "}",
+                  "if (!pm.environment.get('refreshToken')) {",
+                  "  throw new Error('refreshToken is empty. Run Verify OTP, Login, or Refresh Token first.');",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -323,7 +380,13 @@
                   "pm.test('Status code is 200', function () {",
                   "  pm.response.to.have.status(200);",
                   "});",
-                  "pm.environment.unset('refreshToken');"
+                  "const body = pm.response.json();",
+                  "pm.test('Response has message', function () {",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});",
+                  "pm.environment.unset('accessToken');",
+                  "pm.environment.unset('refreshToken');",
+                  "pm.environment.unset('tokenType');"
                 ]
               }
             }
@@ -373,6 +436,17 @@
           "name": "Logout All",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('accessToken')) {",
+                  "  throw new Error('accessToken is empty. Run Verify OTP or Login first.');",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -380,8 +454,13 @@
                   "pm.test('Status code is 200', function () {",
                   "  pm.response.to.have.status(200);",
                   "});",
+                  "const body = pm.response.json();",
+                  "pm.test('Response has message', function () {",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});",
                   "pm.environment.unset('accessToken');",
-                  "pm.environment.unset('refreshToken');"
+                  "pm.environment.unset('refreshToken');",
+                  "pm.environment.unset('tokenType');"
                 ]
               }
             }
