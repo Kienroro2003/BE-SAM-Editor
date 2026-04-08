@@ -111,6 +111,12 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <version>3.2.4</version>
+            <scope>test</scope>
+        </dependency>
 
         <!-- Source: https://mvnrepository.com/artifact/io.github.cdimascio/dotenv-java -->
         <dependency>
@@ -194,6 +200,36 @@
                                 </path>
                             </annotationProcessorPaths>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                        <configuration>
+                            <includes>
+                                <include>com.sam.besameditor.*</include>
+                            </includes>
+                            <excludes>
+                                <exclude>*$MockitoMock$*</exclude>
+                                <exclude>*$HibernateProxy*</exclude>
+                                <exclude>*$HibernateInstantiator*</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>

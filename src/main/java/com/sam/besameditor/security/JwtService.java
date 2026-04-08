@@ -1,6 +1,7 @@
 package com.sam.besameditor.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -36,8 +37,21 @@ public class JwtService {
     }
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
-        String username = extractUsername(token);
-        return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
+        try {
+            Claims claims;
+            boolean expired = false;
+            try {
+                claims = extractAllClaims(token);
+            } catch (ExpiredJwtException ex) {
+                claims = ex.getClaims();
+                expired = true;
+            }
+
+            String username = claims.getSubject();
+            return username.equals(userDetails.getUsername()) && !expired;
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     private boolean isTokenExpired(String token) {
