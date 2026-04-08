@@ -32,6 +32,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(Map.of("message", ex.getMessage()));
     }
 
+    @ExceptionHandler(WorkspaceStorageException.class)
+    public ResponseEntity<Map<String, String>> handleWorkspaceStorage(WorkspaceStorageException ex) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("message", "Failed to store repository source code on server"));
+    }
+
     @ExceptionHandler(UpstreamServiceException.class)
     public ResponseEntity<Map<String, String>> handleUpstreamService(UpstreamServiceException ex) {
         return ResponseEntity.status(ex.getStatus()).body(Map.of("message", ex.getMessage()));

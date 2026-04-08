@@ -132,6 +132,13 @@
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
+        <!-- Git clone without requiring system git binary -->
+        <dependency>
+            <groupId>org.eclipse.jgit</groupId>
+            <artifactId>org.eclipse.jgit</artifactId>
+            <version>7.1.0.202411261347-r</version>
+        </dependency>
+
         <!-- JWT Authentication -->
 <dependency>
     <groupId>io.jsonwebtoken</groupId>

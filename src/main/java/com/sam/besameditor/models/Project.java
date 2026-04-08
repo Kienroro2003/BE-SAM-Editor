@@ -34,6 +34,9 @@ public class Project {
     @Column(nullable = false)
     private String sourceUrl;
 
+    @Column(length = 1024)
+    private String storagePath;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;

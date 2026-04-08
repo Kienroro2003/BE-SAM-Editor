@@ -32,6 +32,7 @@ public class WorkspaceService {
     private final ProjectRepository projectRepository;
     private final SourceFileRepository sourceFileRepository;
     private final GithubRepositoryTreeClient githubRepositoryTreeClient;
+    private final WorkspaceSourceStorageService workspaceSourceStorageService;
     private final long maxSizeBytes;
     private final Set<String> blacklistedDirs;
 
@@ -40,12 +41,14 @@ public class WorkspaceService {
             ProjectRepository projectRepository,
             SourceFileRepository sourceFileRepository,
             GithubRepositoryTreeClient githubRepositoryTreeClient,
+            WorkspaceSourceStorageService workspaceSourceStorageService,
             @Value("${app.workspace.max-size-bytes:15728640}") long maxSizeBytes,
             @Value("${app.workspace.blacklist-dirs:.git,node_modules,target,dist,build,.idea,.vscode}") String blacklistDirs) {
         this.userRepository = userRepository;
         this.projectRepository = projectRepository;
         this.sourceFileRepository = sourceFileRepository;
         this.githubRepositoryTreeClient = githubRepositoryTreeClient;
+        this.workspaceSourceStorageService = workspaceSourceStorageService;
         this.maxSizeBytes = maxSizeBytes;
         this.blacklistedDirs = parseBlacklist(blacklistDirs);
     }
@@ -65,6 +68,13 @@ public class WorkspaceService {
         project.setSourceType(ProjectSourceType.GITHUB);
         project.setSourceUrl(repoDescriptor.canonicalUrl());
         Project savedProject = projectRepository.save(project);
+
+        String storagePath = workspaceSourceStorageService.cloneGithubRepository(
+                user.getId(),
+                savedProject.getId(),
+                repoDescriptor.cloneUrl());
+        savedProject.setStoragePath(storagePath);
+        projectRepository.save(savedProject);
 
         if (!snapshots.isEmpty()) {
             List<SourceFile> files = snapshots.stream()
@@ -233,7 +243,8 @@ public class WorkspaceService {
         String owner = matcher.group(1);
         String repo = matcher.group(2);
         String canonicalUrl = "https://github.com/" + owner + "/" + repo;
-        return new RepoDescriptor(owner, repo, canonicalUrl);
+        String cloneUrl = canonicalUrl + ".git";
+        return new RepoDescriptor(owner, repo, canonicalUrl, cloneUrl);
     }
 
     private String normalizePath(String path) {
@@ -297,7 +308,7 @@ public class WorkspaceService {
         return "TEXT";
     }
 
-    private record RepoDescriptor(String owner, String repo, String canonicalUrl) {
+    private record RepoDescriptor(String owner, String repo, String canonicalUrl, String cloneUrl) {
     }
 
     private record SourceFileSnapshot(String filePath, String language) {

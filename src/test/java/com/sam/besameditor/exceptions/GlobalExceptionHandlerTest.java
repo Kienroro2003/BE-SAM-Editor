@@ -57,6 +57,15 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void handleWorkspaceStorage_ShouldReturnInternalServerError() {
+        ResponseEntity<Map<String, String>> response =
+                exceptionHandler.handleWorkspaceStorage(new WorkspaceStorageException("storage failed", null));
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertEquals("Failed to store repository source code on server", response.getBody().get("message"));
+    }
+
+    @Test
     void handleUpstreamService_ShouldReturnConfiguredStatus() {
         ResponseEntity<Map<String, String>> response =
                 exceptionHandler.handleUpstreamService(

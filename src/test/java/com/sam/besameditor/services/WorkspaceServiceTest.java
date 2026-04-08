@@ -35,6 +35,8 @@ class WorkspaceServiceTest {
     private SourceFileRepository sourceFileRepository;
     @Mock
     private GithubRepositoryTreeClient githubRepositoryTreeClient;
+    @Mock
+    private WorkspaceSourceStorageService workspaceSourceStorageService;
 
     private WorkspaceService workspaceService;
 
@@ -45,6 +47,7 @@ class WorkspaceServiceTest {
                 projectRepository,
                 sourceFileRepository,
                 githubRepositoryTreeClient,
+                workspaceSourceStorageService,
                 15_728_640L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
         );
@@ -71,6 +74,8 @@ class WorkspaceServiceTest {
             project.setId(100L);
             return project;
         });
+        when(workspaceSourceStorageService.cloneGithubRepository(1L, 100L, "https://github.com/owner/repo.git"))
+                .thenReturn("/tmp/workspace-storage/user-1/project-100");
 
         ImportGithubWorkspaceResponse response =
                 workspaceService.importFromGithub("https://github.com/owner/repo", "user@test.com");
@@ -79,6 +84,8 @@ class WorkspaceServiceTest {
         assertEquals("repo", response.getName());
         assertEquals(2, response.getTotalFiles());
         assertEquals(30L, response.getTotalSizeBytes());
+        verify(workspaceSourceStorageService)
+                .cloneGithubRepository(1L, 100L, "https://github.com/owner/repo.git");
 
         ArgumentCaptor<List<SourceFile>> filesCaptor = ArgumentCaptor.forClass(List.class);
         verify(sourceFileRepository).saveAll(filesCaptor.capture());
@@ -114,6 +121,7 @@ class WorkspaceServiceTest {
                 projectRepository,
                 sourceFileRepository,
                 githubRepositoryTreeClient,
+                workspaceSourceStorageService,
                 10L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
         );
