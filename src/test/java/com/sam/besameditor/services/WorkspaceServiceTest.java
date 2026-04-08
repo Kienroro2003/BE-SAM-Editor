@@ -5,6 +5,7 @@ import com.sam.besameditor.dto.WorkspaceTreeResponse;
 import com.sam.besameditor.exceptions.NotFoundException;
 import com.sam.besameditor.exceptions.WorkspacePayloadTooLargeException;
 import com.sam.besameditor.models.Project;
+import com.sam.besameditor.models.ProjectSourceType;
 import com.sam.besameditor.models.SourceFile;
 import com.sam.besameditor.models.User;
 import com.sam.besameditor.repositories.ProjectRepository;
@@ -17,6 +18,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -152,6 +157,76 @@ class WorkspaceServiceTest {
     }
 
     @Test
+    void importFromLocalFolder_ShouldSaveProjectAndSourceFiles() throws IOException {
+        Path rootFolder = Files.createTempDirectory("workspace-local-import-");
+        try {
+            Files.writeString(rootFolder.resolve("README.md"), "# Local Workspace");
+            Files.createDirectories(rootFolder.resolve("src"));
+            Files.writeString(rootFolder.resolve("src/App.java"), "class App {}");
+
+            User user = new User();
+            user.setId(1L);
+            user.setEmail("user@test.com");
+
+            when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+            when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> {
+                Project project = invocation.getArgument(0);
+                project.setId(100L);
+                return project;
+            });
+            when(workspaceSourceStorageService.copyLocalFolder(1L, 100L, rootFolder.toAbsolutePath().normalize()))
+                    .thenReturn("/tmp/workspace-storage/user-1/project-100");
+
+            ImportGithubWorkspaceResponse response =
+                    workspaceService.importFromLocalFolder(rootFolder.toString(), "local-project", "user@test.com");
+
+            assertEquals(100L, response.getProjectId());
+            assertEquals("local-project", response.getName());
+            assertEquals(2, response.getTotalFiles());
+            assertTrue(response.getTotalSizeBytes() > 0L);
+            verify(workspaceSourceStorageService)
+                    .copyLocalFolder(1L, 100L, rootFolder.toAbsolutePath().normalize());
+
+            ArgumentCaptor<Project> projectCaptor = ArgumentCaptor.forClass(Project.class);
+            verify(projectRepository, atLeastOnce()).save(projectCaptor.capture());
+            assertTrue(projectCaptor.getAllValues().stream()
+                    .anyMatch(p -> p.getSourceType() == ProjectSourceType.LOCAL_FOLDER));
+
+            ArgumentCaptor<List<SourceFile>> filesCaptor = ArgumentCaptor.forClass(List.class);
+            verify(sourceFileRepository).saveAll(filesCaptor.capture());
+            List<SourceFile> savedFiles = filesCaptor.getValue();
+            assertEquals(2, savedFiles.size());
+            assertTrue(savedFiles.stream().anyMatch(file -> "README.md".equals(file.getFilePath()) && "MARKDOWN".equals(file.getLanguage())));
+            assertTrue(savedFiles.stream().anyMatch(file -> "src/App.java".equals(file.getFilePath()) && "JAVA".equals(file.getLanguage())));
+        } finally {
+            deleteDirectory(rootFolder);
+        }
+    }
+
+    @Test
+    void importFromLocalFolder_ShouldThrow_WhenContainsBlacklistedDirectory() throws IOException {
+        Path rootFolder = Files.createTempDirectory("workspace-local-import-blacklist-");
+        try {
+            Path blacklistedDir = rootFolder.resolve("node_modules");
+            Files.createDirectories(blacklistedDir);
+            Files.writeString(blacklistedDir.resolve("index.js"), "module.exports = {};");
+
+            User user = new User();
+            user.setId(1L);
+            user.setEmail("user@test.com");
+            when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+
+            assertThrows(WorkspacePayloadTooLargeException.class,
+                    () -> workspaceService.importFromLocalFolder(rootFolder.toString(), "local-project", "user@test.com"));
+
+            verify(projectRepository, never()).save(any(Project.class));
+            verify(sourceFileRepository, never()).saveAll(anyList());
+        } finally {
+            deleteDirectory(rootFolder);
+        }
+    }
+
+    @Test
     void getWorkspaceTree_ShouldBuildNestedTree() {
         User user = new User();
         user.setId(7L);
@@ -197,5 +272,21 @@ class WorkspaceServiceTest {
         when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.empty());
 
         assertThrows(NotFoundException.class, () -> workspaceService.getWorkspaceTree(22L, "user@test.com"));
+    }
+
+    private void deleteDirectory(Path path) throws IOException {
+        if (path == null || !Files.exists(path)) {
+            return;
+        }
+        try (var walk = Files.walk(path)) {
+            walk.sorted(Comparator.reverseOrder())
+                    .forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        } catch (IOException ignored) {
+                            // best effort for temp test folders
+                        }
+                    });
+        }
     }
 }

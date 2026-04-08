@@ -18,6 +18,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -76,19 +83,7 @@ public class WorkspaceService {
         savedProject.setStoragePath(storagePath);
         projectRepository.save(savedProject);
 
-        if (!snapshots.isEmpty()) {
-            List<SourceFile> files = snapshots.stream()
-                    .map(snapshot -> {
-                        SourceFile sourceFile = new SourceFile();
-                        sourceFile.setProject(savedProject);
-                        sourceFile.setFilePath(snapshot.filePath());
-                        sourceFile.setLanguage(snapshot.language());
-                        sourceFile.setStatus(SourceFileStatus.AVAILABLE);
-                        return sourceFile;
-                    })
-                    .toList();
-            sourceFileRepository.saveAll(files);
-        }
+        persistSourceFiles(savedProject, snapshots);
 
         return new ImportGithubWorkspaceResponse(
                 savedProject.getId(),
@@ -96,6 +91,36 @@ public class WorkspaceService {
                 savedProject.getSourceUrl(),
                 snapshots.size(),
                 totalSize[0]);
+    }
+
+    @Transactional
+    public ImportGithubWorkspaceResponse importFromLocalFolder(String folderPath, String workspaceName, String userEmail) {
+        User user = findUserByEmail(userEmail);
+        LocalFolderDescriptor localFolderDescriptor = parseLocalFolder(folderPath, workspaceName);
+        LocalImportResult localImportResult = collectFilesFromLocalFolder(localFolderDescriptor.path());
+
+        Project project = new Project();
+        project.setUser(user);
+        project.setName(localFolderDescriptor.workspaceName());
+        project.setSourceType(ProjectSourceType.LOCAL_FOLDER);
+        project.setSourceUrl(localFolderDescriptor.sourceUrl());
+        Project savedProject = projectRepository.save(project);
+
+        String storagePath = workspaceSourceStorageService.copyLocalFolder(
+                user.getId(),
+                savedProject.getId(),
+                localFolderDescriptor.path());
+        savedProject.setStoragePath(storagePath);
+        projectRepository.save(savedProject);
+
+        persistSourceFiles(savedProject, localImportResult.snapshots());
+
+        return new ImportGithubWorkspaceResponse(
+                savedProject.getId(),
+                savedProject.getName(),
+                savedProject.getSourceUrl(),
+                localImportResult.snapshots().size(),
+                localImportResult.totalSizeBytes());
     }
 
     @Transactional(readOnly = true)
@@ -168,6 +193,63 @@ public class WorkspaceService {
         }
     }
 
+    private LocalImportResult collectFilesFromLocalFolder(Path rootFolder) {
+        List<SourceFileSnapshot> snapshots = new ArrayList<>();
+        long[] totalSize = new long[]{0L};
+
+        try {
+            Files.walkFileTree(rootFolder, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    if (dir.equals(rootFolder)) {
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    String relativeDir = normalizePath(rootFolder.relativize(dir).toString());
+                    if (containsBlacklistedDir(relativeDir)) {
+                        throw new WorkspacePayloadTooLargeException(
+                                "Workspace import rejected: repository contains blacklisted directory in path '" + relativeDir + "'.");
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (!attrs.isRegularFile()) {
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    String relativeFile = normalizePath(rootFolder.relativize(file).toString());
+                    if (relativeFile.isBlank()) {
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    String parentPath = extractParentPath(relativeFile);
+                    if (!parentPath.isBlank() && containsBlacklistedDir(parentPath)) {
+                        throw new WorkspacePayloadTooLargeException(
+                                "Workspace import rejected: repository contains blacklisted directory in path '" + relativeFile + "'.");
+                    }
+
+                    long fileSize = Math.max(attrs.size(), 0L);
+                    long nextSize = totalSize[0] + fileSize;
+                    if (nextSize > maxSizeBytes) {
+                        throw new WorkspacePayloadTooLargeException(
+                                "Workspace import rejected: repository size exceeds limit of " + maxSizeBytes + " bytes.");
+                    }
+                    totalSize[0] = nextSize;
+                    snapshots.add(new SourceFileSnapshot(relativeFile, detectLanguage(relativeFile)));
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (WorkspacePayloadTooLargeException ex) {
+            throw ex;
+        } catch (IOException ex) {
+            throw new IllegalArgumentException("Unable to read source folder at path '" + rootFolder + "'.", ex);
+        }
+
+        return new LocalImportResult(snapshots, totalSize[0]);
+    }
+
     private List<WorkspaceTreeNodeResponse> buildTreeNodes(List<SourceFile> sourceFiles) {
         MutableNode root = new MutableNode("", "", "folder", null);
         for (SourceFile sourceFile : sourceFiles) {
@@ -230,6 +312,51 @@ public class WorkspaceService {
     private User findUserByEmail(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new NotFoundException("User not found"));
+    }
+
+    private void persistSourceFiles(Project project, List<SourceFileSnapshot> snapshots) {
+        if (snapshots.isEmpty()) {
+            return;
+        }
+        List<SourceFile> files = snapshots.stream()
+                .map(snapshot -> {
+                    SourceFile sourceFile = new SourceFile();
+                    sourceFile.setProject(project);
+                    sourceFile.setFilePath(snapshot.filePath());
+                    sourceFile.setLanguage(snapshot.language());
+                    sourceFile.setStatus(SourceFileStatus.AVAILABLE);
+                    return sourceFile;
+                })
+                .toList();
+        sourceFileRepository.saveAll(files);
+    }
+
+    private LocalFolderDescriptor parseLocalFolder(String rawPath, String rawWorkspaceName) {
+        if (rawPath == null || rawPath.isBlank()) {
+            throw new IllegalArgumentException("folderPath is required");
+        }
+
+        Path path;
+        try {
+            path = Paths.get(rawPath.trim()).toAbsolutePath().normalize();
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Invalid folderPath");
+        }
+
+        if (!Files.exists(path)) {
+            throw new IllegalArgumentException("folderPath does not exist");
+        }
+        if (!Files.isDirectory(path)) {
+            throw new IllegalArgumentException("folderPath must point to a directory");
+        }
+
+        String workspaceName = (rawWorkspaceName == null ? "" : rawWorkspaceName.trim());
+        if (workspaceName.isBlank()) {
+            Path folderName = path.getFileName();
+            workspaceName = folderName == null ? "local-workspace" : folderName.toString();
+        }
+
+        return new LocalFolderDescriptor(path, workspaceName, path.toUri().toString());
     }
 
     private RepoDescriptor parseGithubRepoUrl(String rawUrl) {
@@ -309,6 +436,12 @@ public class WorkspaceService {
     }
 
     private record RepoDescriptor(String owner, String repo, String canonicalUrl, String cloneUrl) {
+    }
+
+    private record LocalFolderDescriptor(Path path, String workspaceName, String sourceUrl) {
+    }
+
+    private record LocalImportResult(List<SourceFileSnapshot> snapshots, long totalSizeBytes) {
     }
 
     private record SourceFileSnapshot(String filePath, String language) {

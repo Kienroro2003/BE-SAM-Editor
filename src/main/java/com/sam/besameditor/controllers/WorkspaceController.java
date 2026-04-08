@@ -2,6 +2,7 @@ package com.sam.besameditor.controllers;
 
 import com.sam.besameditor.dto.ImportGithubWorkspaceRequest;
 import com.sam.besameditor.dto.ImportGithubWorkspaceResponse;
+import com.sam.besameditor.dto.ImportLocalFolderWorkspaceRequest;
 import com.sam.besameditor.dto.WorkspaceSummaryResponse;
 import com.sam.besameditor.dto.WorkspaceTreeResponse;
 import com.sam.besameditor.services.WorkspaceService;
@@ -29,6 +30,17 @@ public class WorkspaceController {
             Authentication authentication) {
         ImportGithubWorkspaceResponse response =
                 workspaceService.importFromGithub(request.getRepoUrl(), authentication.getName());
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/import/folder")
+    public ResponseEntity<ImportGithubWorkspaceResponse> importLocalFolderWorkspace(
+            @Valid @RequestBody ImportLocalFolderWorkspaceRequest request,
+            Authentication authentication) {
+        ImportGithubWorkspaceResponse response = workspaceService.importFromLocalFolder(
+                request.getFolderPath(),
+                request.getWorkspaceName(),
+                authentication.getName());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

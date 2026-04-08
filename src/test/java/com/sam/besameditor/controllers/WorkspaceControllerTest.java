@@ -2,6 +2,7 @@ package com.sam.besameditor.controllers;
 
 import com.sam.besameditor.dto.ImportGithubWorkspaceRequest;
 import com.sam.besameditor.dto.ImportGithubWorkspaceResponse;
+import com.sam.besameditor.dto.ImportLocalFolderWorkspaceRequest;
 import com.sam.besameditor.dto.WorkspaceSummaryResponse;
 import com.sam.besameditor.dto.WorkspaceTreeResponse;
 import com.sam.besameditor.models.ProjectSourceType;
@@ -48,6 +49,29 @@ class WorkspaceControllerTest {
         assertEquals(1L, response.getProjectId());
         assertEquals("repo", response.getName());
         assertEquals(2, response.getTotalFiles());
+    }
+
+    @Test
+    void importLocalFolderWorkspace_ShouldReturnCreated() {
+        ImportLocalFolderWorkspaceRequest request = new ImportLocalFolderWorkspaceRequest();
+        request.setFolderPath("/tmp/sample-workspace");
+        request.setWorkspaceName("sample-workspace");
+
+        Authentication authentication = org.mockito.Mockito.mock(Authentication.class);
+        when(authentication.getName()).thenReturn("user@test.com");
+
+        ImportGithubWorkspaceResponse serviceResponse =
+                new ImportGithubWorkspaceResponse(5L, "sample-workspace", "file:///tmp/sample-workspace/", 3, 120L);
+        when(workspaceService.importFromLocalFolder("/tmp/sample-workspace", "sample-workspace", "user@test.com"))
+                .thenReturn(serviceResponse);
+
+        ImportGithubWorkspaceResponse response = workspaceController
+                .importLocalFolderWorkspace(request, authentication)
+                .getBody();
+
+        assertEquals(5L, response.getProjectId());
+        assertEquals("sample-workspace", response.getName());
+        assertEquals(3, response.getTotalFiles());
     }
 
     @Test

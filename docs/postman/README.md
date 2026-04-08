@@ -19,7 +19,9 @@ Mặc định API base URL: `http://localhost:8080`.
 3. `Verify OTP` (hoặc dùng `Login` nếu tài khoản đã verify)
 4. `Me` (kiểm tra access token hiện tại)
 5. `Refresh Token` (kiểm tra token rotation, Postman tự so sánh refresh token cũ/mới)
-6. `Workspace > Import GitHub Workspace`
+6. Import workspace:
+`Workspace > Import GitHub Workspace` (repo public/private qua PAT), hoặc
+`Workspace > Import Local Folder Workspace` (folder path ở phía server)
 7. `Workspace > Get My Workspaces`
 8. `Workspace > Get Workspace Tree`
 9. `Logout` hoặc `Logout All`
@@ -27,6 +29,8 @@ Mặc định API base URL: `http://localhost:8080`.
 ## 5) Biến môi trường chính
 - `autoGenerateEmail=true`: mỗi lần `Register` sẽ tự tạo email mới.
 - `repoUrl`: URL repo GitHub public để import.
+- `folderPath`: đường dẫn tuyệt đối tới folder source code trên server (ví dụ `/Users/kienroro/projects/sample`).
+- `localWorkspaceName`: tên workspace khi import local folder (có thể để trống để dùng tên folder).
 - `projectId`: tự được set sau khi import hoặc gọi list workspace.
 - `accessToken`, `refreshToken`: tự được set sau `Verify OTP` / `Login` / `Refresh Token`.
 - `tokenType`: backend hiện trả `Bearer` (được set tự động khi login/verify/refresh).
@@ -39,7 +43,8 @@ Mặc định API base URL: `http://localhost:8080`.
 ## 7) Status code thường gặp
 - `401`: thiếu/invalid Bearer token
 - `404`: repo GitHub không tồn tại hoặc không truy cập được
-- `413`: repo chứa thư mục blacklist (`node_modules`, `target`, ...) hoặc vượt giới hạn size
+- `413`: source chứa thư mục blacklist (`node_modules`, `target`, ...) hoặc vượt giới hạn size
+- `400`: `folderPath` không tồn tại hoặc không phải directory
 
 ## 8) Tránh GitHub rate limit
 - Set biến môi trường backend `APP_GITHUB_TOKEN=<your_pat>` trước khi chạy app.

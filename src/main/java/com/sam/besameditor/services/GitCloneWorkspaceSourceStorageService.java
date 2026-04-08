@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Comparator;
 
 @Service
@@ -53,6 +54,27 @@ public class GitCloneWorkspaceSourceStorageService implements WorkspaceSourceSto
         }
     }
 
+    @Override
+    public String copyLocalFolder(Long userId, Long projectId, Path sourceFolder) {
+        Path targetDir = storageRootPath
+                .resolve("user-" + userId)
+                .resolve("project-" + projectId);
+
+        try {
+            Files.createDirectories(targetDir.getParent());
+            deleteDirectoryIfExists(targetDir);
+            copyDirectory(sourceFolder, targetDir);
+            return targetDir.toString();
+        } catch (IOException ex) {
+            try {
+                deleteDirectoryIfExists(targetDir);
+            } catch (IOException ignored) {
+                // best effort cleanup
+            }
+            throw new WorkspaceStorageException("Failed to copy local source folder", ex);
+        }
+    }
+
     private void deleteDirectoryIfExists(Path path) throws IOException {
         if (!Files.exists(path)) {
             return;
@@ -72,5 +94,31 @@ public class GitCloneWorkspaceSourceStorageService implements WorkspaceSourceSto
             }
             throw ex;
         }
+    }
+
+    private void copyDirectory(Path sourceDir, Path targetDir) throws IOException {
+        Files.walkFileTree(sourceDir, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                Path relative = sourceDir.relativize(dir);
+                Path destination = targetDir.resolve(relative.toString());
+                Files.createDirectories(destination);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                if (attrs.isRegularFile()) {
+                    Path relative = sourceDir.relativize(file);
+                    Path destination = targetDir.resolve(relative.toString());
+                    Path parent = destination.getParent();
+                    if (parent != null) {
+                        Files.createDirectories(parent);
+                    }
+                    Files.copy(file, destination, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 }

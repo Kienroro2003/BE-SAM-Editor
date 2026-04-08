@@ -591,6 +591,69 @@
           "response": []
         },
         {
+          "name": "Import Local Folder Workspace",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('Response has projectId', function () {",
+                  "  pm.expect(body.projectId).to.exist;",
+                  "});",
+                  "if (body.projectId) pm.environment.set('projectId', String(body.projectId));",
+                  "if (body.name) pm.environment.set('workspaceName', body.name);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"folderPath\": \"{{folderPath}}\",\n  \"workspaceName\": \"{{localWorkspaceName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/import/folder",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "workspaces",
+                "import",
+                "folder"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Get My Workspaces",
           "event": [
             {
