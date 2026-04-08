@@ -38,12 +38,13 @@ class RefreshTokenServiceTest {
     }
 
     @Test
-    void createRefreshToken_ShouldDeleteOldTokenAndCreateNewToken() {
+    void createRefreshToken_ShouldCreateNewToken_WhenNotExists() {
         User user = new User();
         user.setId(1L);
         user.setEmail("test@test.com");
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(refreshTokenRepository.findByUser_Id(1L)).thenReturn(Optional.empty());
         when(refreshTokenRepository.save(any(RefreshToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         RefreshToken token = refreshTokenService.createRefreshToken(1L);
@@ -51,8 +52,33 @@ class RefreshTokenServiceTest {
         assertNotNull(token.getToken());
         assertEquals(user, token.getUser());
         assertTrue(token.getExpiresAt().isAfter(LocalDateTime.now().plusDays(6)));
-        verify(refreshTokenRepository).deleteByUser_Id(1L);
+        verify(refreshTokenRepository).findByUser_Id(1L);
         verify(refreshTokenRepository).save(any(RefreshToken.class));
+    }
+
+    @Test
+    void createRefreshToken_ShouldReuseExistingTokenEntity_WhenExists() {
+        User user = new User();
+        user.setId(2L);
+        user.setEmail("existing@test.com");
+
+        RefreshToken existing = new RefreshToken();
+        existing.setToken("old-token");
+        existing.setUser(user);
+        existing.setExpiresAt(LocalDateTime.now().plusDays(1));
+
+        when(userRepository.findById(2L)).thenReturn(Optional.of(user));
+        when(refreshTokenRepository.findByUser_Id(2L)).thenReturn(Optional.of(existing));
+        when(refreshTokenRepository.save(any(RefreshToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        RefreshToken result = refreshTokenService.createRefreshToken(2L);
+
+        assertSame(existing, result);
+        assertNotEquals("old-token", result.getToken());
+        assertEquals(user, result.getUser());
+        verify(refreshTokenRepository).findByUser_Id(2L);
+        verify(refreshTokenRepository).save(existing);
+        verify(refreshTokenRepository, never()).deleteByUser_Id(anyLong());
     }
 
     @Test
