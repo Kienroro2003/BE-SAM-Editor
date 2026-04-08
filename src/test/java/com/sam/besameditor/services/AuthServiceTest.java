@@ -6,6 +6,7 @@ import com.sam.besameditor.dto.RegisterRequest;
 import com.sam.besameditor.dto.VerifyOtpRequest;
 import com.sam.besameditor.models.AuthProvider;
 import com.sam.besameditor.models.EmailVerificationCode;
+import com.sam.besameditor.models.RefreshToken;
 import com.sam.besameditor.models.User;
 import com.sam.besameditor.repositories.EmailVerificationCodeRepository;
 import com.sam.besameditor.repositories.UserRepository;
@@ -32,6 +33,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -52,12 +54,19 @@ class AuthServiceTest {
     @Mock
     private EmailService emailService;
 
+    @Mock
+    private RefreshTokenService refreshTokenService;
+
     @InjectMocks
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(authService, "otpExpiryMinutes", 5);
+
+        RefreshToken defaultRefreshToken = new RefreshToken();
+        defaultRefreshToken.setToken("refresh-token-123");
+        lenient().when(refreshTokenService.createRefreshToken(nullable(Long.class))).thenReturn(defaultRefreshToken);
     }
 
     @Test
@@ -125,6 +134,7 @@ class AuthServiceTest {
         // Assert
         assertNotNull(response);
         assertEquals("jwt-token-123", response.getAccessToken());
+        assertEquals("refresh-token-123", response.getRefreshToken());
         assertTrue(user.getIsEmailVerified());
 
         verify(otpRepository, times(1)).markAllUsedByUser(user);
@@ -229,6 +239,7 @@ class AuthServiceTest {
         // Assert
         assertNotNull(response);
         assertEquals("jwt-token-123", response.getAccessToken());
+        assertEquals("refresh-token-123", response.getRefreshToken());
         assertEquals("Test User", response.getFullName());
     }
 
@@ -321,6 +332,56 @@ class AuthServiceTest {
     }
 
     @Test
+    void refreshToken_ShouldRotateAndReturnNewTokens_WhenRefreshTokenValid() {
+        User user = new User();
+        user.setId(1L);
+        user.setEmail("test@test.com");
+        user.setPassword("encoded");
+        user.setFullName("Test User");
+
+        RefreshToken currentRefreshToken = new RefreshToken();
+        currentRefreshToken.setToken("old-refresh");
+        currentRefreshToken.setUser(user);
+        currentRefreshToken.setExpiresAt(LocalDateTime.now().plusDays(1));
+
+        when(refreshTokenService.findByTokenOrThrow("old-refresh")).thenReturn(currentRefreshToken);
+        when(refreshTokenService.verifyExpiration(currentRefreshToken)).thenReturn(currentRefreshToken);
+        when(jwtService.generateToken(any(UserDetails.class))).thenReturn("new-access");
+
+        RefreshToken rotatedRefreshToken = new RefreshToken();
+        rotatedRefreshToken.setToken("new-refresh");
+        when(refreshTokenService.createRefreshToken(1L)).thenReturn(rotatedRefreshToken);
+
+        AuthResponse response = authService.refreshToken("old-refresh");
+
+        assertEquals("new-access", response.getAccessToken());
+        assertEquals("new-refresh", response.getRefreshToken());
+        verify(refreshTokenService).deleteByToken("old-refresh");
+    }
+
+    @Test
+    void logout_ShouldDeleteTokenAndReturnMessage() {
+        Map<String, String> response = authService.logout("refresh-123");
+
+        assertEquals("Logged out successfully.", response.get("message"));
+        verify(refreshTokenService).deleteByToken("refresh-123");
+    }
+
+    @Test
+    void logoutAllByEmail_ShouldDeleteUserTokensAndReturnMessage() {
+        User user = new User();
+        user.setId(99L);
+        user.setEmail("test@test.com");
+
+        when(userRepository.findByEmail("test@test.com")).thenReturn(Optional.of(user));
+
+        Map<String, String> response = authService.logoutAllByEmail("test@test.com");
+
+        assertEquals("Logged out from all devices successfully.", response.get("message"));
+        verify(refreshTokenService).deleteByUserId(99L);
+    }
+
+    @Test
     void processGithubLogin_ShouldCreateUserAndReturnJwt_WhenNewUser() {
         // Arrange
         OAuth2User oauth2User = new DefaultOAuth2User(
@@ -343,10 +404,11 @@ class AuthServiceTest {
         when(jwtService.generateToken(any())).thenReturn("github-jwt");
 
         // Act
-        String token = authService.processGithubLogin(oauth2User);
+        AuthResponse response = authService.processGithubLogin(oauth2User);
 
         // Assert
-        assertEquals("github-jwt", token);
+        assertEquals("github-jwt", response.getAccessToken());
+        assertEquals("refresh-token-123", response.getRefreshToken());
         verify(userRepository, times(1)).save(argThat(user -> 
             user.getEmail().equals("github@test.com") &&
             user.getProvider() == AuthProvider.GITHUB &&
@@ -373,9 +435,10 @@ class AuthServiceTest {
         when(userRepository.findByEmail("github@test.com")).thenReturn(Optional.of(existing));
         when(jwtService.generateToken(any())).thenReturn("existing-user-jwt");
 
-        String token = authService.processGithubLogin(oauth2User);
+        AuthResponse response = authService.processGithubLogin(oauth2User);
 
-        assertEquals("existing-user-jwt", token);
+        assertEquals("existing-user-jwt", response.getAccessToken());
+        assertEquals("refresh-token-123", response.getRefreshToken());
         verify(userRepository, never()).save(any(User.class));
     }
 
@@ -395,9 +458,10 @@ class AuthServiceTest {
         when(userRepository.save(any(User.class))).thenAnswer(i -> i.getArguments()[0]);
         when(jwtService.generateToken(any())).thenReturn("github-jwt");
 
-        String token = authService.processGithubLogin(oauth2User);
+        AuthResponse response = authService.processGithubLogin(oauth2User);
 
-        assertEquals("github-jwt", token);
+        assertEquals("github-jwt", response.getAccessToken());
+        assertEquals("refresh-token-123", response.getRefreshToken());
         verify(userRepository).save(argThat(user ->
                 user.getEmail().equals("githubuser@users.noreply.github.com")
                         && user.getFullName().equals("githubuser")
@@ -423,9 +487,10 @@ class AuthServiceTest {
         when(userRepository.save(any(User.class))).thenAnswer(i -> i.getArguments()[0]);
         when(jwtService.generateToken(any())).thenReturn("github-jwt");
 
-        String token = authService.processGithubLogin(oauth2User);
+        AuthResponse response = authService.processGithubLogin(oauth2User);
 
-        assertEquals("github-jwt", token);
+        assertEquals("github-jwt", response.getAccessToken());
+        assertEquals("refresh-token-123", response.getRefreshToken());
         verify(userRepository).save(argThat(user ->
                 user.getEmail().equals("githubuser@users.noreply.github.com")
         ));
@@ -446,9 +511,10 @@ class AuthServiceTest {
         when(userRepository.save(any(User.class))).thenAnswer(i -> i.getArguments()[0]);
         when(jwtService.generateToken(any())).thenReturn("github-jwt");
 
-        String token = authService.processGithubLogin(oauth2User);
+        AuthResponse response = authService.processGithubLogin(oauth2User);
 
-        assertEquals("github-jwt", token);
+        assertEquals("github-jwt", response.getAccessToken());
+        assertEquals("refresh-token-123", response.getRefreshToken());
         verify(userRepository).save(argThat(user ->
                 user.getEmail().equals("github@test.com")
                         && user.getFullName().equals("GitHub User")
@@ -471,9 +537,10 @@ class AuthServiceTest {
         when(userRepository.save(any(User.class))).thenAnswer(i -> i.getArguments()[0]);
         when(jwtService.generateToken(any())).thenReturn("github-jwt");
 
-        String token = authService.processGithubLogin(oauth2User);
+        AuthResponse response = authService.processGithubLogin(oauth2User);
 
-        assertEquals("github-jwt", token);
+        assertEquals("github-jwt", response.getAccessToken());
+        assertEquals("refresh-token-123", response.getRefreshToken());
         verify(userRepository).save(argThat(user ->
                 user.getEmail().equals("github@test.com")
                         && user.getFullName().equals("GitHub User")

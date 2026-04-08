@@ -1,5 +1,6 @@
 package com.sam.besameditor.security;
 
+import com.sam.besameditor.dto.AuthResponse;
 import com.sam.besameditor.services.AuthService;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,8 +33,9 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
             HttpServletResponse response,
             Authentication authentication) throws IOException, ServletException {
         OAuth2User oauth2User = (OAuth2User) authentication.getPrincipal();
-        String token = authService.processGithubLogin(oauth2User);
-        String encodedToken = URLEncoder.encode(token, StandardCharsets.UTF_8);
-        response.sendRedirect(redirectUri + "?token=" + encodedToken);
+        AuthResponse authResponse = authService.processGithubLogin(oauth2User);
+        String encodedToken = URLEncoder.encode(authResponse.getAccessToken(), StandardCharsets.UTF_8);
+        String encodedRefreshToken = URLEncoder.encode(authResponse.getRefreshToken(), StandardCharsets.UTF_8);
+        response.sendRedirect(redirectUri + "?token=" + encodedToken + "&refreshToken=" + encodedRefreshToken);
     }
 }

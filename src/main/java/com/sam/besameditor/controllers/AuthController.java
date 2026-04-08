@@ -2,6 +2,7 @@ package com.sam.besameditor.controllers;
 
 import com.sam.besameditor.dto.AuthResponse;
 import com.sam.besameditor.dto.LoginRequest;
+import com.sam.besameditor.dto.RefreshTokenRequest;
 import com.sam.besameditor.dto.RegisterRequest;
 import com.sam.besameditor.dto.VerifyOtpRequest;
 import com.sam.besameditor.services.AuthService;
@@ -45,6 +46,24 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
+    }
+
+    /** Rotate access + refresh token. */
+    @PostMapping("/refresh-token")
+    public ResponseEntity<AuthResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
+        return ResponseEntity.ok(authService.refreshToken(request.getRefreshToken()));
+    }
+
+    /** Logout current device by refresh token. */
+    @PostMapping("/logout")
+    public ResponseEntity<Map<String, String>> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        return ResponseEntity.ok(authService.logout(request.getRefreshToken()));
+    }
+
+    /** Logout all devices for authenticated user. */
+    @PostMapping("/logout-all")
+    public ResponseEntity<Map<String, String>> logoutAll(Authentication authentication) {
+        return ResponseEntity.ok(authService.logoutAllByEmail(authentication.getName()));
     }
 
     /** Get current authenticated user info. */

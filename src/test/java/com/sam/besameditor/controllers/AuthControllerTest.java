@@ -3,6 +3,7 @@ package com.sam.besameditor.controllers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sam.besameditor.dto.AuthResponse;
 import com.sam.besameditor.dto.LoginRequest;
+import com.sam.besameditor.dto.RefreshTokenRequest;
 import com.sam.besameditor.dto.RegisterRequest;
 import com.sam.besameditor.dto.VerifyOtpRequest;
 import com.sam.besameditor.services.AuthService;
@@ -136,6 +137,38 @@ class AuthControllerTest {
     }
 
     @Test
+    void refreshToken_ShouldReturn200AndAuthResponse() throws Exception {
+        RefreshTokenRequest request = new RefreshTokenRequest();
+        request.setRefreshToken("refresh-123");
+
+        AuthResponse authResponse = new AuthResponse("new-jwt", "new-refresh", "test@test.com", "Test User");
+        when(authService.refreshToken("refresh-123")).thenReturn(authResponse);
+
+        mockMvc.perform(post("/api/auth/refresh-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("new-jwt"))
+                .andExpect(jsonPath("$.refreshToken").value("new-refresh"))
+                .andExpect(jsonPath("$.email").value("test@test.com"));
+    }
+
+    @Test
+    void logout_ShouldReturn200() throws Exception {
+        RefreshTokenRequest request = new RefreshTokenRequest();
+        request.setRefreshToken("refresh-123");
+
+        when(authService.logout("refresh-123"))
+                .thenReturn(Map.of("message", "Logged out successfully."));
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Logged out successfully."));
+    }
+
+    @Test
     void me_ShouldReturnCurrentUserInfo() throws Exception {
         Authentication authentication = org.mockito.Mockito.mock(Authentication.class);
         Collection<? extends GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("ROLE_USER"));
@@ -146,6 +179,17 @@ class AuthControllerTest {
 
         assertEquals("me@test.com", body.get("email"));
         assertEquals(authorities, body.get("authorities"));
+    }
+
+    @Test
+    void logoutAll_ShouldReturn200() {
+        Authentication authentication = org.mockito.Mockito.mock(Authentication.class);
+        when(authentication.getName()).thenReturn("me@test.com");
+        when(authService.logoutAllByEmail("me@test.com"))
+                .thenReturn(Map.of("message", "Logged out from all devices successfully."));
+
+        Map<String, String> body = authController.logoutAll(authentication).getBody();
+        assertEquals("Logged out from all devices successfully.", body.get("message"));
     }
 
     @Test

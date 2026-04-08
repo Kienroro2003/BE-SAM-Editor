@@ -1,5 +1,6 @@
 package com.sam.besameditor.security;
 
+import com.sam.besameditor.dto.AuthResponse;
 import com.sam.besameditor.services.AuthService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,13 +46,15 @@ class OAuth2LoginSuccessHandlerTest {
         );
 
         when(authentication.getPrincipal()).thenReturn(oauth2User);
-        when(authService.processGithubLogin(oauth2User)).thenReturn("abc+/=");
+        when(authService.processGithubLogin(oauth2User))
+                .thenReturn(new AuthResponse("abc+/=", "refresh+/=", "github@user.com", "GitHub User"));
 
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         successHandler.onAuthenticationSuccess(request, response, authentication);
 
-        assertEquals("http://localhost:3000/oauth2/success?token=abc%2B%2F%3D", response.getRedirectedUrl());
+        assertEquals("http://localhost:3000/oauth2/success?token=abc%2B%2F%3D&refreshToken=refresh%2B%2F%3D",
+                response.getRedirectedUrl());
     }
 }

@@ -6,6 +6,7 @@ import com.sam.besameditor.dto.RegisterRequest;
 import com.sam.besameditor.dto.VerifyOtpRequest;
 import com.sam.besameditor.models.AuthProvider;
 import com.sam.besameditor.models.EmailVerificationCode;
+import com.sam.besameditor.models.RefreshToken;
 import com.sam.besameditor.models.User;
 import com.sam.besameditor.repositories.EmailVerificationCodeRepository;
 import com.sam.besameditor.repositories.UserRepository;
@@ -30,6 +31,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final EmailVerificationCodeRepository otpRepository;
     private final EmailService emailService;
+    private final RefreshTokenService refreshTokenService;
 
     @Value("${app.otp.expiry-minutes:5}")
     private int otpExpiryMinutes;
@@ -39,12 +41,14 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
             EmailVerificationCodeRepository otpRepository,
-            EmailService emailService) {
+            EmailService emailService,
+            RefreshTokenService refreshTokenService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.otpRepository = otpRepository;
         this.emailService = emailService;
+        this.refreshTokenService = refreshTokenService;
     }
 
     /**
@@ -70,7 +74,7 @@ public class AuthService {
     }
 
     /**
-     * Step 2/2: Verify OTP, activate account, return JWT.
+     * Step 2/2: Verify OTP, activate account, return token pair.
      */
     @Transactional
     public AuthResponse verifyOtp(VerifyOtpRequest request) {
@@ -93,8 +97,7 @@ public class AuthService {
         user.setIsEmailVerified(true);
         userRepository.save(user);
 
-        String token = jwtService.generateToken(buildUserDetails(user));
-        return new AuthResponse(token, user.getEmail(), user.getFullName());
+        return issueAuthTokens(user);
     }
 
     /**
@@ -128,14 +131,13 @@ public class AuthService {
             throw new BadCredentialsException("Invalid credentials");
         }
 
-        String token = jwtService.generateToken(buildUserDetails(user));
-        return new AuthResponse(token, user.getEmail(), user.getFullName());
+        return issueAuthTokens(user);
     }
 
     /**
      * GitHub OAuth2 — auto-verified on first login.
      */
-    public String processGithubLogin(OAuth2User oauth2User) {
+    public AuthResponse processGithubLogin(OAuth2User oauth2User) {
         Map<String, Object> attributes = oauth2User.getAttributes();
 
         String email = (String) attributes.get("email");
@@ -166,7 +168,29 @@ public class AuthService {
             return userRepository.save(newUser);
         });
 
-        return jwtService.generateToken(buildUserDetails(user));
+        return issueAuthTokens(user);
+    }
+
+    @Transactional
+    public AuthResponse refreshToken(String refreshTokenText) {
+        RefreshToken refreshToken = refreshTokenService.findByTokenOrThrow(refreshTokenText);
+        refreshTokenService.verifyExpiration(refreshToken);
+        refreshTokenService.deleteByToken(refreshTokenText);
+        return issueAuthTokens(refreshToken.getUser());
+    }
+
+    @Transactional
+    public Map<String, String> logout(String refreshTokenText) {
+        refreshTokenService.deleteByToken(refreshTokenText);
+        return Map.of("message", "Logged out successfully.");
+    }
+
+    @Transactional
+    public Map<String, String> logoutAllByEmail(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        refreshTokenService.deleteByUserId(user.getId());
+        return Map.of("message", "Logged out from all devices successfully.");
     }
 
     // ── Private Helpers ──────────────────────────────────────────────
@@ -191,5 +215,11 @@ public class AuthService {
                 .password(user.getPassword())
                 .roles("USER")
                 .build();
+    }
+
+    private AuthResponse issueAuthTokens(User user) {
+        String accessToken = jwtService.generateToken(buildUserDetails(user));
+        RefreshToken refreshToken = refreshTokenService.createRefreshToken(user.getId());
+        return new AuthResponse(accessToken, refreshToken.getToken(), user.getEmail(), user.getFullName());
     }
 }

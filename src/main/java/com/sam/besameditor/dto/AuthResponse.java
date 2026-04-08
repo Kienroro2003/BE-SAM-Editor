@@ -1,29 +1,29 @@
 package com.sam.besameditor.dto;
 
-import com.sam.besameditor.models.*;
-import com.sam.besameditor.repositories.*;
-import com.sam.besameditor.services.*;
-import com.sam.besameditor.controllers.*;
-import com.sam.besameditor.security.*;
-import com.sam.besameditor.config.*;
-import com.sam.besameditor.exceptions.*;
-import com.sam.besameditor.dto.*;
-
-
 public class AuthResponse {
     private String accessToken;
+    private String refreshToken;
     private String tokenType = "Bearer";
     private String email;
     private String fullName;
 
     public AuthResponse(String accessToken, String email, String fullName) {
+        this(accessToken, null, email, fullName);
+    }
+
+    public AuthResponse(String accessToken, String refreshToken, String email, String fullName) {
         this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
         this.email = email;
         this.fullName = fullName;
     }
 
     public String getAccessToken() {
         return accessToken;
+    }
+
+    public String getRefreshToken() {
+        return refreshToken;
     }
 
     public String getTokenType() {

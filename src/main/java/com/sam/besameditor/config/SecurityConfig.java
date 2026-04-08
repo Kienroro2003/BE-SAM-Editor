@@ -53,6 +53,7 @@ public class SecurityConfig {
                     "/api/auth/verify-otp",
                     "/api/auth/resend-otp",
                     "/api/auth/login",
+                    "/api/auth/refresh-token",
                     "/api/auth/github"
                 ).permitAll()
                 // OAuth2 / error pages — public

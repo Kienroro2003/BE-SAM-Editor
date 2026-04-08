@@ -40,11 +40,20 @@ class DtoTest {
 
     @Test
     void authResponse_ConstructorAndGetters_ShouldWork() {
-        AuthResponse response = new AuthResponse("token", "test@test.com", "Test User");
+        AuthResponse response = new AuthResponse("token", "refresh", "test@test.com", "Test User");
 
         assertEquals("token", response.getAccessToken());
+        assertEquals("refresh", response.getRefreshToken());
         assertEquals("Bearer", response.getTokenType());
         assertEquals("test@test.com", response.getEmail());
         assertEquals("Test User", response.getFullName());
+    }
+
+    @Test
+    void refreshTokenRequest_GetterSetter_ShouldWork() {
+        RefreshTokenRequest request = new RefreshTokenRequest();
+        request.setRefreshToken("refresh-token");
+
+        assertEquals("refresh-token", request.getRefreshToken());
     }
 }
