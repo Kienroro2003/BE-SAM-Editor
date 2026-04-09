@@ -760,6 +760,211 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Get Workspace File Content",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const projectId = pm.environment.get('projectId');",
+                  "if (!projectId) {",
+                  "  throw new Error('projectId is empty. Run import or list workspaces first.');",
+                  "}",
+                  "const workspaceFilePath = pm.environment.get('workspaceFilePath');",
+                  "if (!workspaceFilePath) {",
+                  "  throw new Error('workspaceFilePath is empty. Set a file path from workspace tree.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('Response has expected file content fields', function () {",
+                  "  pm.expect(body.projectId).to.exist;",
+                  "  pm.expect(body.path).to.exist;",
+                  "  pm.expect(body.content).to.be.a('string');",
+                  "  pm.expect(body.sizeBytes).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/{{projectId}}/files/content?path={{workspaceFilePath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "workspaces",
+                "{{projectId}}",
+                "files",
+                "content"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "{{workspaceFilePath}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Workspace Folder",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const projectId = pm.environment.get('projectId');",
+                  "if (!projectId) {",
+                  "  throw new Error('projectId is empty. Run import or list workspaces first.');",
+                  "}",
+                  "const workspaceFolderPath = pm.environment.get('workspaceFolderPath');",
+                  "if (!workspaceFolderPath) {",
+                  "  throw new Error('workspaceFolderPath is empty. Set folder path to delete.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('Response has delete summary fields', function () {",
+                  "  pm.expect(body.projectId).to.exist;",
+                  "  pm.expect(body.path).to.exist;",
+                  "  pm.expect(body.deletedFiles).to.be.a('number');",
+                  "});",
+                  "if (body.path) pm.environment.set('lastDeletedFolderPath', body.path);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/{{projectId}}/folders?path={{workspaceFolderPath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "workspaces",
+                "{{projectId}}",
+                "folders"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "{{workspaceFolderPath}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Workspace",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const projectId = pm.environment.get('projectId');",
+                  "if (!projectId) {",
+                  "  throw new Error('projectId is empty. Run import or list workspaces first.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('Response has delete workspace summary fields', function () {",
+                  "  pm.expect(body.projectId).to.exist;",
+                  "  pm.expect(body.deletedFiles).to.be.a('number');",
+                  "  pm.expect(body.message).to.exist;",
+                  "});",
+                  "pm.environment.unset('projectId');",
+                  "pm.environment.unset('workspaceName');",
+                  "pm.environment.unset('workspaceFilePath');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/{{projectId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "workspaces",
+                "{{projectId}}"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     }

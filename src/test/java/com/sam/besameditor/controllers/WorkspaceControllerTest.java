@@ -1,7 +1,10 @@
 package com.sam.besameditor.controllers;
 
+import com.sam.besameditor.dto.DeleteWorkspaceFolderResponse;
+import com.sam.besameditor.dto.DeleteWorkspaceResponse;
 import com.sam.besameditor.dto.ImportGithubWorkspaceRequest;
 import com.sam.besameditor.dto.ImportGithubWorkspaceResponse;
+import com.sam.besameditor.dto.WorkspaceFileContentResponse;
 import com.sam.besameditor.dto.WorkspaceSummaryResponse;
 import com.sam.besameditor.dto.WorkspaceTreeResponse;
 import com.sam.besameditor.models.ProjectSourceType;
@@ -110,5 +113,76 @@ class WorkspaceControllerTest {
 
         assertEquals(10L, response.getProjectId());
         assertEquals("repo", response.getProjectName());
+    }
+
+    @Test
+    void getWorkspaceFileContent_ShouldReturnFileContent() {
+        Authentication authentication = org.mockito.Mockito.mock(Authentication.class);
+        when(authentication.getName()).thenReturn("user@test.com");
+
+        WorkspaceFileContentResponse fileContentResponse = new WorkspaceFileContentResponse(
+                10L,
+                "src/App.java",
+                "JAVA",
+                "class App {}",
+                12L);
+        when(workspaceService.getWorkspaceFileContent(10L, "src/App.java", "user@test.com"))
+                .thenReturn(fileContentResponse);
+
+        WorkspaceFileContentResponse response = workspaceController
+                .getWorkspaceFileContent(10L, "src/App.java", authentication)
+                .getBody();
+
+        assertEquals(10L, response.getProjectId());
+        assertEquals("src/App.java", response.getPath());
+        assertEquals("JAVA", response.getLanguage());
+        assertEquals("class App {}", response.getContent());
+        assertEquals(12L, response.getSizeBytes());
+    }
+
+    @Test
+    void deleteWorkspaceFolder_ShouldReturnDeleteSummary() {
+        Authentication authentication = org.mockito.Mockito.mock(Authentication.class);
+        when(authentication.getName()).thenReturn("user@test.com");
+
+        DeleteWorkspaceFolderResponse serviceResponse = new DeleteWorkspaceFolderResponse(
+                10L,
+                "src/main",
+                4,
+                "Folder deleted successfully.");
+
+        when(workspaceService.deleteWorkspaceFolder(10L, "src/main", "user@test.com"))
+                .thenReturn(serviceResponse);
+
+        DeleteWorkspaceFolderResponse response = workspaceController
+                .deleteWorkspaceFolder(10L, "src/main", authentication)
+                .getBody();
+
+        assertEquals(10L, response.getProjectId());
+        assertEquals("src/main", response.getPath());
+        assertEquals(4, response.getDeletedFiles());
+        assertEquals("Folder deleted successfully.", response.getMessage());
+    }
+
+    @Test
+    void deleteWorkspace_ShouldReturnDeleteSummary() {
+        Authentication authentication = org.mockito.Mockito.mock(Authentication.class);
+        when(authentication.getName()).thenReturn("user@test.com");
+
+        DeleteWorkspaceResponse serviceResponse = new DeleteWorkspaceResponse(
+                10L,
+                8,
+                "Workspace deleted successfully.");
+
+        when(workspaceService.deleteWorkspace(10L, "user@test.com"))
+                .thenReturn(serviceResponse);
+
+        DeleteWorkspaceResponse response = workspaceController
+                .deleteWorkspace(10L, authentication)
+                .getBody();
+
+        assertEquals(10L, response.getProjectId());
+        assertEquals(8, response.getDeletedFiles());
+        assertEquals("Workspace deleted successfully.", response.getMessage());
     }
 }

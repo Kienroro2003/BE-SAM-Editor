@@ -1,11 +1,15 @@
 package com.sam.besameditor.services;
 
+import com.sam.besameditor.dto.DeleteWorkspaceFolderResponse;
+import com.sam.besameditor.dto.DeleteWorkspaceResponse;
 import com.sam.besameditor.dto.ImportGithubWorkspaceResponse;
+import com.sam.besameditor.dto.WorkspaceFileContentResponse;
 import com.sam.besameditor.dto.WorkspaceSummaryResponse;
 import com.sam.besameditor.dto.WorkspaceTreeNodeResponse;
 import com.sam.besameditor.dto.WorkspaceTreeResponse;
 import com.sam.besameditor.exceptions.NotFoundException;
 import com.sam.besameditor.exceptions.WorkspacePayloadTooLargeException;
+import com.sam.besameditor.exceptions.WorkspaceStorageException;
 import com.sam.besameditor.models.Project;
 import com.sam.besameditor.models.ProjectSourceType;
 import com.sam.besameditor.models.SourceFile;
@@ -21,8 +25,13 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
@@ -30,6 +39,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -45,6 +55,7 @@ public class WorkspaceService {
     private final GithubRepositoryTreeClient githubRepositoryTreeClient;
     private final WorkspaceSourceStorageService workspaceSourceStorageService;
     private final long maxSizeBytes;
+    private final long fileContentMaxBytes;
     private final Set<String> blacklistedDirs;
 
     public WorkspaceService(
@@ -54,6 +65,7 @@ public class WorkspaceService {
             GithubRepositoryTreeClient githubRepositoryTreeClient,
             WorkspaceSourceStorageService workspaceSourceStorageService,
             @Value("${app.workspace.max-size-bytes:15728640}") long maxSizeBytes,
+            @Value("${app.workspace.file-content-max-bytes:1048576}") long fileContentMaxBytes,
             @Value("${app.workspace.blacklist-dirs:.git,node_modules,target,dist,build,.idea,.vscode}") String blacklistDirs) {
         this.userRepository = userRepository;
         this.projectRepository = projectRepository;
@@ -61,6 +73,7 @@ public class WorkspaceService {
         this.githubRepositoryTreeClient = githubRepositoryTreeClient;
         this.workspaceSourceStorageService = workspaceSourceStorageService;
         this.maxSizeBytes = maxSizeBytes;
+        this.fileContentMaxBytes = fileContentMaxBytes;
         this.blacklistedDirs = parseBlacklist(blacklistDirs);
     }
 
@@ -180,6 +193,98 @@ public class WorkspaceService {
         List<SourceFile> files = sourceFileRepository.findByProject_IdOrderByFilePathAsc(projectId);
         List<WorkspaceTreeNodeResponse> nodes = buildTreeNodes(files);
         return new WorkspaceTreeResponse(project.getId(), project.getName(), nodes);
+    }
+
+    @Transactional(readOnly = true)
+    public WorkspaceFileContentResponse getWorkspaceFileContent(Long projectId, String path, String userEmail) {
+        User user = findUserByEmail(userEmail);
+        Project project = projectRepository.findByIdAndUser_Id(projectId, user.getId())
+                .orElseThrow(() -> new NotFoundException("Workspace not found"));
+
+        Path workspaceRoot = resolveWorkspaceRoot(project);
+        Path relativeFilePath = resolveRelativeFilePath(path);
+        Path targetFile = workspaceRoot.resolve(relativeFilePath).normalize();
+        if (!targetFile.startsWith(workspaceRoot)) {
+            throw new IllegalArgumentException("Invalid file path");
+        }
+        if (!Files.exists(targetFile) || !Files.isRegularFile(targetFile)) {
+            throw new NotFoundException("File not found in workspace");
+        }
+
+        byte[] fileBytes = readWorkspaceFile(targetFile);
+        String normalizedPath = normalizePath(relativeFilePath.toString());
+        String content = decodeUtf8Text(fileBytes);
+
+        return new WorkspaceFileContentResponse(
+                project.getId(),
+                normalizedPath,
+                detectLanguage(normalizedPath),
+                content,
+                fileBytes.length);
+    }
+
+    @Transactional
+    public DeleteWorkspaceFolderResponse deleteWorkspaceFolder(Long projectId, String path, String userEmail) {
+        User user = findUserByEmail(userEmail);
+        Project project = projectRepository.findByIdAndUser_Id(projectId, user.getId())
+                .orElseThrow(() -> new NotFoundException("Workspace not found"));
+
+        Path workspaceRoot = resolveWorkspaceRoot(project);
+        Path relativeFolderPath = resolveRelativeFolderPath(path);
+        Path targetFolder = workspaceRoot.resolve(relativeFolderPath).normalize();
+
+        if (!targetFolder.startsWith(workspaceRoot)) {
+            throw new IllegalArgumentException("Invalid folder path");
+        }
+        if (!Files.exists(targetFolder) || !Files.isDirectory(targetFolder)) {
+            throw new NotFoundException("Folder not found in workspace");
+        }
+
+        deleteDirectoryRecursively(targetFolder);
+
+        String normalizedFolderPath = normalizePath(relativeFolderPath.toString());
+        String folderPrefix = normalizedFolderPath + "/";
+
+        List<SourceFile> sourceFiles = sourceFileRepository.findByProject_IdOrderByFilePathAsc(projectId);
+        List<SourceFile> filesToDelete = sourceFiles.stream()
+                .filter(file -> {
+                    String filePath = normalizePath(file.getFilePath());
+                    return filePath.equals(normalizedFolderPath) || filePath.startsWith(folderPrefix);
+                })
+                .collect(Collectors.toList());
+
+        if (!filesToDelete.isEmpty()) {
+            sourceFileRepository.deleteAllInBatch(filesToDelete);
+        }
+
+        return new DeleteWorkspaceFolderResponse(
+                projectId,
+                normalizedFolderPath,
+                filesToDelete.size(),
+                "Folder deleted successfully.");
+    }
+
+    @Transactional
+    public DeleteWorkspaceResponse deleteWorkspace(Long projectId, String userEmail) {
+        User user = findUserByEmail(userEmail);
+        Project project = projectRepository.findByIdAndUser_Id(projectId, user.getId())
+                .orElseThrow(() -> new NotFoundException("Workspace not found"));
+
+        int deletedFileCount = 0;
+        List<SourceFile> sourceFiles = sourceFileRepository.findByProject_IdOrderByFilePathAsc(projectId);
+        if (!sourceFiles.isEmpty()) {
+            deletedFileCount = sourceFiles.size();
+            sourceFileRepository.deleteAllInBatch(sourceFiles);
+        }
+
+        Path workspaceRoot = resolveWorkspaceRootForDelete(project);
+        if (workspaceRoot != null && Files.exists(workspaceRoot)) {
+            deleteDirectoryRecursively(workspaceRoot);
+        }
+
+        projectRepository.delete(project);
+
+        return new DeleteWorkspaceResponse(projectId, deletedFileCount, "Workspace deleted successfully.");
     }
 
     private void collectFilesRecursive(
@@ -499,6 +604,178 @@ public class WorkspaceService {
         return new ZipImportDescriptor(workspaceName, sourceUrl);
     }
 
+    private Path resolveWorkspaceRoot(Project project) {
+        String rawStoragePath = project.getStoragePath();
+        if (rawStoragePath == null || rawStoragePath.isBlank()) {
+            throw new NotFoundException("Workspace source not found on server");
+        }
+
+        Path workspaceRoot;
+        try {
+            workspaceRoot = Path.of(rawStoragePath).toAbsolutePath().normalize();
+        } catch (InvalidPathException ex) {
+            throw new IllegalArgumentException("Workspace source path is invalid", ex);
+        }
+
+        if (!Files.exists(workspaceRoot) || !Files.isDirectory(workspaceRoot)) {
+            throw new NotFoundException("Workspace source not found on server");
+        }
+        return workspaceRoot;
+    }
+
+    private Path resolveWorkspaceRootForDelete(Project project) {
+        String rawStoragePath = project.getStoragePath();
+        if (rawStoragePath == null || rawStoragePath.isBlank()) {
+            return null;
+        }
+
+        Path workspaceRoot;
+        try {
+            workspaceRoot = Path.of(rawStoragePath).toAbsolutePath().normalize();
+        } catch (InvalidPathException ex) {
+            throw new IllegalArgumentException("Workspace source path is invalid", ex);
+        }
+
+        String expectedProjectDirectoryName = "project-" + project.getId();
+        Path lastSegment = workspaceRoot.getFileName();
+        if (lastSegment == null || !expectedProjectDirectoryName.equals(lastSegment.toString())) {
+            throw new IllegalArgumentException("Workspace source path is invalid");
+        }
+
+        return workspaceRoot;
+    }
+
+    private Path resolveRelativeFilePath(String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) {
+            throw new IllegalArgumentException("path is required");
+        }
+
+        String trimmedPath = rawPath.trim();
+        if (trimmedPath.startsWith("/") || trimmedPath.startsWith("\\")) {
+            throw new IllegalArgumentException("Invalid file path");
+        }
+
+        String slashNormalizedPath = trimmedPath.replace("\\", "/");
+        if (slashNormalizedPath.matches("^[a-zA-Z]:/.*")) {
+            throw new IllegalArgumentException("Invalid file path");
+        }
+
+        String normalizedPath = normalizePath(slashNormalizedPath);
+        if (normalizedPath.isBlank()) {
+            throw new IllegalArgumentException("path is required");
+        }
+
+        Path relativePath;
+        try {
+            relativePath = Path.of(normalizedPath).normalize();
+        } catch (InvalidPathException ex) {
+            throw new IllegalArgumentException("Invalid file path", ex);
+        }
+
+        if (relativePath.isAbsolute()
+                || relativePath.getNameCount() == 0
+                || startsWithParentTraversal(relativePath)) {
+            throw new IllegalArgumentException("Invalid file path");
+        }
+        return relativePath;
+    }
+
+    private Path resolveRelativeFolderPath(String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) {
+            throw new IllegalArgumentException("path is required");
+        }
+
+        String trimmedPath = rawPath.trim();
+        if (trimmedPath.startsWith("/") || trimmedPath.startsWith("\\")) {
+            throw new IllegalArgumentException("Invalid folder path");
+        }
+
+        String slashNormalizedPath = trimmedPath.replace("\\", "/");
+        if (slashNormalizedPath.matches("^[a-zA-Z]:/.*")) {
+            throw new IllegalArgumentException("Invalid folder path");
+        }
+
+        String normalizedPath = normalizePath(slashNormalizedPath);
+        if (normalizedPath.isBlank()) {
+            throw new IllegalArgumentException("path is required");
+        }
+
+        Path relativePath;
+        try {
+            relativePath = Path.of(normalizedPath).normalize();
+        } catch (InvalidPathException ex) {
+            throw new IllegalArgumentException("Invalid folder path", ex);
+        }
+
+        if (relativePath.isAbsolute()
+                || relativePath.getNameCount() == 0
+                || startsWithParentTraversal(relativePath)) {
+            throw new IllegalArgumentException("Invalid folder path");
+        }
+        return relativePath;
+    }
+
+    private byte[] readWorkspaceFile(Path targetFile) {
+        long fileSize;
+        try {
+            fileSize = Files.size(targetFile);
+        } catch (IOException ex) {
+            throw new IllegalArgumentException("Unable to read workspace file", ex);
+        }
+
+        if (fileSize > fileContentMaxBytes) {
+            throw new WorkspacePayloadTooLargeException(
+                    "Workspace file content exceeds limit of " + fileContentMaxBytes + " bytes.");
+        }
+
+        byte[] fileBytes;
+        try {
+            fileBytes = Files.readAllBytes(targetFile);
+        } catch (IOException ex) {
+            throw new IllegalArgumentException("Unable to read workspace file", ex);
+        }
+
+        if (fileBytes.length > fileContentMaxBytes) {
+            throw new WorkspacePayloadTooLargeException(
+                    "Workspace file content exceeds limit of " + fileContentMaxBytes + " bytes.");
+        }
+        if (!isTextContent(fileBytes)) {
+            throw new IllegalArgumentException("Only text files are supported");
+        }
+        return fileBytes;
+    }
+
+    private String decodeUtf8Text(byte[] fileBytes) {
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(fileBytes))
+                    .toString();
+        } catch (CharacterCodingException ex) {
+            throw new IllegalArgumentException("Only UTF-8 text files are supported", ex);
+        }
+    }
+
+    private boolean isTextContent(byte[] fileBytes) {
+        if (fileBytes.length == 0) {
+            return true;
+        }
+        int suspiciousControlChars = 0;
+        int sampleLength = Math.min(fileBytes.length, 8192);
+        for (int i = 0; i < sampleLength; i++) {
+            int value = fileBytes[i] & 0xFF;
+            if (value == 0) {
+                return false;
+            }
+            boolean isControl = (value < 0x09) || (value > 0x0D && value < 0x20) || value == 0x7F;
+            if (isControl) {
+                suspiciousControlChars++;
+            }
+        }
+        return suspiciousControlChars * 5 <= sampleLength;
+    }
+
     private String normalizePath(String path) {
         if (path == null) {
             return "";
@@ -578,6 +855,19 @@ public class WorkspaceService {
             Files.deleteIfExists(path);
         } catch (IOException ignored) {
             // best effort cleanup
+        }
+    }
+
+    private void deleteDirectoryRecursively(Path folderPath) {
+        try (var walk = Files.walk(folderPath)) {
+            List<Path> sortedPaths = walk
+                    .sorted(Comparator.reverseOrder())
+                    .toList();
+            for (Path path : sortedPaths) {
+                Files.deleteIfExists(path);
+            }
+        } catch (IOException ex) {
+            throw new WorkspaceStorageException("Failed to delete workspace folder", ex);
         }
     }
 

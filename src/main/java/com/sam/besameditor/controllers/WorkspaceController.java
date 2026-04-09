@@ -1,7 +1,10 @@
 package com.sam.besameditor.controllers;
 
+import com.sam.besameditor.dto.DeleteWorkspaceFolderResponse;
+import com.sam.besameditor.dto.DeleteWorkspaceResponse;
 import com.sam.besameditor.dto.ImportGithubWorkspaceRequest;
 import com.sam.besameditor.dto.ImportGithubWorkspaceResponse;
+import com.sam.besameditor.dto.WorkspaceFileContentResponse;
 import com.sam.besameditor.dto.WorkspaceSummaryResponse;
 import com.sam.besameditor.dto.WorkspaceTreeResponse;
 import com.sam.besameditor.services.WorkspaceService;
@@ -56,5 +59,31 @@ public class WorkspaceController {
             @PathVariable Long projectId,
             Authentication authentication) {
         return ResponseEntity.ok(workspaceService.getWorkspaceTree(projectId, authentication.getName()));
+    }
+
+    @GetMapping("/{projectId}/files/content")
+    public ResponseEntity<WorkspaceFileContentResponse> getWorkspaceFileContent(
+            @PathVariable Long projectId,
+            @RequestParam("path") String path,
+            Authentication authentication) {
+        return ResponseEntity.ok(
+                workspaceService.getWorkspaceFileContent(projectId, path, authentication.getName()));
+    }
+
+    @DeleteMapping("/{projectId}/folders")
+    public ResponseEntity<DeleteWorkspaceFolderResponse> deleteWorkspaceFolder(
+            @PathVariable Long projectId,
+            @RequestParam("path") String path,
+            Authentication authentication) {
+        return ResponseEntity.ok(
+                workspaceService.deleteWorkspaceFolder(projectId, path, authentication.getName()));
+    }
+
+    @DeleteMapping("/{projectId}")
+    public ResponseEntity<DeleteWorkspaceResponse> deleteWorkspace(
+            @PathVariable Long projectId,
+            Authentication authentication) {
+        return ResponseEntity.ok(
+                workspaceService.deleteWorkspace(projectId, authentication.getName()));
     }
 }

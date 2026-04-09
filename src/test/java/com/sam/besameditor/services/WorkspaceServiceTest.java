@@ -1,6 +1,9 @@
 package com.sam.besameditor.services;
 
+import com.sam.besameditor.dto.DeleteWorkspaceFolderResponse;
+import com.sam.besameditor.dto.DeleteWorkspaceResponse;
 import com.sam.besameditor.dto.ImportGithubWorkspaceResponse;
+import com.sam.besameditor.dto.WorkspaceFileContentResponse;
 import com.sam.besameditor.dto.WorkspaceTreeResponse;
 import com.sam.besameditor.exceptions.NotFoundException;
 import com.sam.besameditor.exceptions.WorkspacePayloadTooLargeException;
@@ -13,6 +16,7 @@ import com.sam.besameditor.repositories.SourceFileRepository;
 import com.sam.besameditor.repositories.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -22,6 +26,8 @@ import org.springframework.mock.web.MockMultipartFile;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.zip.ZipEntry;
@@ -45,6 +51,9 @@ class WorkspaceServiceTest {
     @Mock
     private WorkspaceSourceStorageService workspaceSourceStorageService;
 
+    @TempDir
+    Path tempDir;
+
     private WorkspaceService workspaceService;
 
     @BeforeEach
@@ -56,6 +65,7 @@ class WorkspaceServiceTest {
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
                 15_728_640L,
+                1_048_576L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
         );
     }
@@ -172,6 +182,7 @@ class WorkspaceServiceTest {
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
                 10L,
+                1_048_576L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
         );
 
@@ -302,6 +313,7 @@ class WorkspaceServiceTest {
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
                 10L,
+                1_048_576L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
         );
         MockMultipartFile zipFile = createZipFile("sample.zip", List.of(
@@ -363,6 +375,329 @@ class WorkspaceServiceTest {
         when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.empty());
 
         assertThrows(NotFoundException.class, () -> workspaceService.getWorkspaceTree(22L, "user@test.com"));
+    }
+
+    @Test
+    void getWorkspaceFileContent_ShouldReturnTextContent() throws IOException {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        Path workspaceRoot = Files.createDirectories(tempDir.resolve("project-22"));
+        Path file = workspaceRoot.resolve("src/App.java");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, "class App {}", StandardCharsets.UTF_8);
+
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath(workspaceRoot.toString());
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+
+        WorkspaceFileContentResponse response =
+                workspaceService.getWorkspaceFileContent(22L, "src/App.java", "user@test.com");
+
+        assertEquals(22L, response.getProjectId());
+        assertEquals("src/App.java", response.getPath());
+        assertEquals("JAVA", response.getLanguage());
+        assertEquals("class App {}", response.getContent());
+        assertEquals(12L, response.getSizeBytes());
+    }
+
+    @Test
+    void getWorkspaceFileContent_ShouldThrow_WhenProjectDoesNotBelongToUser() {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.empty());
+
+        assertThrows(NotFoundException.class,
+                () -> workspaceService.getWorkspaceFileContent(22L, "src/App.java", "user@test.com"));
+    }
+
+    @Test
+    void getWorkspaceFileContent_ShouldThrow_WhenFileNotFound() throws IOException {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        Path workspaceRoot = Files.createDirectories(tempDir.resolve("project-22"));
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath(workspaceRoot.toString());
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+
+        assertThrows(NotFoundException.class,
+                () -> workspaceService.getWorkspaceFileContent(22L, "src/Missing.java", "user@test.com"));
+    }
+
+    @Test
+    void getWorkspaceFileContent_ShouldThrow_WhenPathTraversal() throws IOException {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        Path workspaceRoot = Files.createDirectories(tempDir.resolve("project-22"));
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath(workspaceRoot.toString());
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> workspaceService.getWorkspaceFileContent(22L, "../etc/passwd", "user@test.com"));
+    }
+
+    @Test
+    void getWorkspaceFileContent_ShouldThrow_WhenExceedsFileContentLimit() throws IOException {
+        workspaceService = new WorkspaceService(
+                userRepository,
+                projectRepository,
+                sourceFileRepository,
+                githubRepositoryTreeClient,
+                workspaceSourceStorageService,
+                15_728_640L,
+                10L,
+                ".git,node_modules,target,dist,build,.idea,.vscode"
+        );
+
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        Path workspaceRoot = Files.createDirectories(tempDir.resolve("project-22"));
+        Path file = workspaceRoot.resolve("notes.txt");
+        Files.writeString(file, "01234567890", StandardCharsets.UTF_8);
+
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath(workspaceRoot.toString());
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+
+        assertThrows(WorkspacePayloadTooLargeException.class,
+                () -> workspaceService.getWorkspaceFileContent(22L, "notes.txt", "user@test.com"));
+    }
+
+    @Test
+    void getWorkspaceFileContent_ShouldThrow_WhenBinaryFile() throws IOException {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        Path workspaceRoot = Files.createDirectories(tempDir.resolve("project-22"));
+        Path file = workspaceRoot.resolve("image.bin");
+        Files.write(file, new byte[]{0x01, 0x02, 0x00, 0x03});
+
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath(workspaceRoot.toString());
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> workspaceService.getWorkspaceFileContent(22L, "image.bin", "user@test.com"));
+    }
+
+    @Test
+    void deleteWorkspaceFolder_ShouldDeleteFolderFromStorageAndMetadata() throws IOException {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        Path workspaceRoot = Files.createDirectories(tempDir.resolve("project-22"));
+        Path removedFile = workspaceRoot.resolve("src/main/App.java");
+        Path removedNestedFile = workspaceRoot.resolve("src/main/utils/Helper.java");
+        Path keptFile = workspaceRoot.resolve("src/Keep.java");
+
+        Files.createDirectories(removedFile.getParent());
+        Files.createDirectories(removedNestedFile.getParent());
+        Files.createDirectories(keptFile.getParent());
+        Files.writeString(removedFile, "class App {}", StandardCharsets.UTF_8);
+        Files.writeString(removedNestedFile, "class Helper {}", StandardCharsets.UTF_8);
+        Files.writeString(keptFile, "class Keep {}", StandardCharsets.UTF_8);
+
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath(workspaceRoot.toString());
+
+        SourceFile file1 = new SourceFile();
+        file1.setFilePath("src/main/App.java");
+        SourceFile file2 = new SourceFile();
+        file2.setFilePath("src/main/utils/Helper.java");
+        SourceFile file3 = new SourceFile();
+        file3.setFilePath("src/Keep.java");
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+        when(sourceFileRepository.findByProject_IdOrderByFilePathAsc(22L)).thenReturn(List.of(file1, file2, file3));
+
+        DeleteWorkspaceFolderResponse response =
+                workspaceService.deleteWorkspaceFolder(22L, "src/main", "user@test.com");
+
+        assertEquals(22L, response.getProjectId());
+        assertEquals("src/main", response.getPath());
+        assertEquals(2, response.getDeletedFiles());
+        assertEquals("Folder deleted successfully.", response.getMessage());
+
+        assertFalse(Files.exists(workspaceRoot.resolve("src/main")));
+        assertTrue(Files.exists(keptFile));
+
+        ArgumentCaptor<List<SourceFile>> captor = ArgumentCaptor.forClass(List.class);
+        verify(sourceFileRepository).deleteAllInBatch(captor.capture());
+        List<SourceFile> deletedFiles = captor.getValue();
+        assertEquals(2, deletedFiles.size());
+        assertTrue(deletedFiles.stream().anyMatch(file -> "src/main/App.java".equals(file.getFilePath())));
+        assertTrue(deletedFiles.stream().anyMatch(file -> "src/main/utils/Helper.java".equals(file.getFilePath())));
+    }
+
+    @Test
+    void deleteWorkspaceFolder_ShouldThrow_WhenFolderNotFound() throws IOException {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        Path workspaceRoot = Files.createDirectories(tempDir.resolve("project-22"));
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath(workspaceRoot.toString());
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+
+        assertThrows(NotFoundException.class,
+                () -> workspaceService.deleteWorkspaceFolder(22L, "src/missing", "user@test.com"));
+
+        verify(sourceFileRepository, never()).findByProject_IdOrderByFilePathAsc(anyLong());
+        verify(sourceFileRepository, never()).deleteAllInBatch(anyList());
+    }
+
+    @Test
+    void deleteWorkspaceFolder_ShouldThrow_WhenPathTraversal() throws IOException {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        Path workspaceRoot = Files.createDirectories(tempDir.resolve("project-22"));
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath(workspaceRoot.toString());
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> workspaceService.deleteWorkspaceFolder(22L, "../etc", "user@test.com"));
+
+        verify(sourceFileRepository, never()).findByProject_IdOrderByFilePathAsc(anyLong());
+        verify(sourceFileRepository, never()).deleteAllInBatch(anyList());
+    }
+
+    @Test
+    void deleteWorkspace_ShouldDeleteStorageMetadataAndProject() throws IOException {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        Path workspaceRoot = Files.createDirectories(tempDir.resolve("user-7").resolve("project-22"));
+        Path removedFile = workspaceRoot.resolve("src/App.java");
+        Files.createDirectories(removedFile.getParent());
+        Files.writeString(removedFile, "class App {}", StandardCharsets.UTF_8);
+
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath(workspaceRoot.toString());
+
+        SourceFile file1 = new SourceFile();
+        file1.setFilePath("README.md");
+        SourceFile file2 = new SourceFile();
+        file2.setFilePath("src/App.java");
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+        when(sourceFileRepository.findByProject_IdOrderByFilePathAsc(22L)).thenReturn(List.of(file1, file2));
+
+        DeleteWorkspaceResponse response = workspaceService.deleteWorkspace(22L, "user@test.com");
+
+        assertEquals(22L, response.getProjectId());
+        assertEquals(2, response.getDeletedFiles());
+        assertEquals("Workspace deleted successfully.", response.getMessage());
+        assertFalse(Files.exists(workspaceRoot));
+
+        verify(sourceFileRepository).deleteAllInBatch(anyList());
+        verify(projectRepository).delete(project);
+    }
+
+    @Test
+    void deleteWorkspace_ShouldDeleteProjectEvenWhenStorageMissing() {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath(null);
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+        when(sourceFileRepository.findByProject_IdOrderByFilePathAsc(22L)).thenReturn(List.of());
+
+        DeleteWorkspaceResponse response = workspaceService.deleteWorkspace(22L, "user@test.com");
+
+        assertEquals(22L, response.getProjectId());
+        assertEquals(0, response.getDeletedFiles());
+        verify(sourceFileRepository, never()).deleteAllInBatch(anyList());
+        verify(projectRepository).delete(project);
+    }
+
+    @Test
+    void deleteWorkspace_ShouldThrow_WhenStoragePathInvalid() {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("user@test.com");
+
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath(tempDir.resolve("not-project-folder").toString());
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+        when(sourceFileRepository.findByProject_IdOrderByFilePathAsc(22L)).thenReturn(List.of());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> workspaceService.deleteWorkspace(22L, "user@test.com"));
+
+        verify(projectRepository, never()).delete(any(Project.class));
     }
 
     private MockMultipartFile createZipFile(String filename, List<ZipEntryData> entries) throws IOException {
