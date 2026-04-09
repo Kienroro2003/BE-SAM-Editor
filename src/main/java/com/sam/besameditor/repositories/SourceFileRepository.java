@@ -10,4 +10,12 @@ import java.util.List;
 public interface SourceFileRepository extends JpaRepository<SourceFile, Long> {
 
     List<SourceFile> findByProject_IdOrderByFilePathAsc(Long projectId);
+
+    long countByProject_Id(Long projectId);
+
+    long deleteByProject_Id(Long projectId);
+
+    long deleteByProject_IdAndFilePath(Long projectId, String filePath);
+
+    long deleteByProject_IdAndFilePathStartingWith(Long projectId, String filePathPrefix);
 }

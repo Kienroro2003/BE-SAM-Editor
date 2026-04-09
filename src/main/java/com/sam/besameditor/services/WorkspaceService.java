@@ -39,7 +39,6 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -245,22 +244,13 @@ public class WorkspaceService {
         String normalizedFolderPath = normalizePath(relativeFolderPath.toString());
         String folderPrefix = normalizedFolderPath + "/";
 
-        List<SourceFile> sourceFiles = sourceFileRepository.findByProject_IdOrderByFilePathAsc(projectId);
-        List<SourceFile> filesToDelete = sourceFiles.stream()
-                .filter(file -> {
-                    String filePath = normalizePath(file.getFilePath());
-                    return filePath.equals(normalizedFolderPath) || filePath.startsWith(folderPrefix);
-                })
-                .collect(Collectors.toList());
-
-        if (!filesToDelete.isEmpty()) {
-            sourceFileRepository.deleteAllInBatch(filesToDelete);
-        }
+        long deletedFiles = sourceFileRepository.deleteByProject_IdAndFilePath(projectId, normalizedFolderPath);
+        deletedFiles += sourceFileRepository.deleteByProject_IdAndFilePathStartingWith(projectId, folderPrefix);
 
         return new DeleteWorkspaceFolderResponse(
                 projectId,
                 normalizedFolderPath,
-                filesToDelete.size(),
+                Math.toIntExact(deletedFiles),
                 "Folder deleted successfully.");
     }
 
@@ -270,21 +260,17 @@ public class WorkspaceService {
         Project project = projectRepository.findByIdAndUser_Id(projectId, user.getId())
                 .orElseThrow(() -> new NotFoundException("Workspace not found"));
 
-        int deletedFileCount = 0;
-        List<SourceFile> sourceFiles = sourceFileRepository.findByProject_IdOrderByFilePathAsc(projectId);
-        if (!sourceFiles.isEmpty()) {
-            deletedFileCount = sourceFiles.size();
-            sourceFileRepository.deleteAllInBatch(sourceFiles);
-        }
-
         Path workspaceRoot = resolveWorkspaceRootForDelete(project);
+        long deletedFileCount = sourceFileRepository.countByProject_Id(projectId);
+        sourceFileRepository.deleteByProject_Id(projectId);
+
         if (workspaceRoot != null && Files.exists(workspaceRoot)) {
             deleteDirectoryRecursively(workspaceRoot);
         }
 
         projectRepository.delete(project);
 
-        return new DeleteWorkspaceResponse(projectId, deletedFileCount, "Workspace deleted successfully.");
+        return new DeleteWorkspaceResponse(projectId, Math.toIntExact(deletedFileCount), "Workspace deleted successfully.");
     }
 
     private void collectFilesRecursive(

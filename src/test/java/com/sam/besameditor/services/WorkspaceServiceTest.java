@@ -541,16 +541,10 @@ class WorkspaceServiceTest {
         project.setUser(user);
         project.setStoragePath(workspaceRoot.toString());
 
-        SourceFile file1 = new SourceFile();
-        file1.setFilePath("src/main/App.java");
-        SourceFile file2 = new SourceFile();
-        file2.setFilePath("src/main/utils/Helper.java");
-        SourceFile file3 = new SourceFile();
-        file3.setFilePath("src/Keep.java");
-
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
         when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
-        when(sourceFileRepository.findByProject_IdOrderByFilePathAsc(22L)).thenReturn(List.of(file1, file2, file3));
+        when(sourceFileRepository.deleteByProject_IdAndFilePath(22L, "src/main")).thenReturn(0L);
+        when(sourceFileRepository.deleteByProject_IdAndFilePathStartingWith(22L, "src/main/")).thenReturn(2L);
 
         DeleteWorkspaceFolderResponse response =
                 workspaceService.deleteWorkspaceFolder(22L, "src/main", "user@test.com");
@@ -563,12 +557,8 @@ class WorkspaceServiceTest {
         assertFalse(Files.exists(workspaceRoot.resolve("src/main")));
         assertTrue(Files.exists(keptFile));
 
-        ArgumentCaptor<List<SourceFile>> captor = ArgumentCaptor.forClass(List.class);
-        verify(sourceFileRepository).deleteAllInBatch(captor.capture());
-        List<SourceFile> deletedFiles = captor.getValue();
-        assertEquals(2, deletedFiles.size());
-        assertTrue(deletedFiles.stream().anyMatch(file -> "src/main/App.java".equals(file.getFilePath())));
-        assertTrue(deletedFiles.stream().anyMatch(file -> "src/main/utils/Helper.java".equals(file.getFilePath())));
+        verify(sourceFileRepository).deleteByProject_IdAndFilePath(22L, "src/main");
+        verify(sourceFileRepository).deleteByProject_IdAndFilePathStartingWith(22L, "src/main/");
     }
 
     @Test
@@ -590,8 +580,8 @@ class WorkspaceServiceTest {
         assertThrows(NotFoundException.class,
                 () -> workspaceService.deleteWorkspaceFolder(22L, "src/missing", "user@test.com"));
 
-        verify(sourceFileRepository, never()).findByProject_IdOrderByFilePathAsc(anyLong());
-        verify(sourceFileRepository, never()).deleteAllInBatch(anyList());
+        verify(sourceFileRepository, never()).deleteByProject_IdAndFilePath(anyLong(), anyString());
+        verify(sourceFileRepository, never()).deleteByProject_IdAndFilePathStartingWith(anyLong(), anyString());
     }
 
     @Test
@@ -613,8 +603,8 @@ class WorkspaceServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> workspaceService.deleteWorkspaceFolder(22L, "../etc", "user@test.com"));
 
-        verify(sourceFileRepository, never()).findByProject_IdOrderByFilePathAsc(anyLong());
-        verify(sourceFileRepository, never()).deleteAllInBatch(anyList());
+        verify(sourceFileRepository, never()).deleteByProject_IdAndFilePath(anyLong(), anyString());
+        verify(sourceFileRepository, never()).deleteByProject_IdAndFilePathStartingWith(anyLong(), anyString());
     }
 
     @Test
@@ -634,14 +624,10 @@ class WorkspaceServiceTest {
         project.setUser(user);
         project.setStoragePath(workspaceRoot.toString());
 
-        SourceFile file1 = new SourceFile();
-        file1.setFilePath("README.md");
-        SourceFile file2 = new SourceFile();
-        file2.setFilePath("src/App.java");
-
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
         when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
-        when(sourceFileRepository.findByProject_IdOrderByFilePathAsc(22L)).thenReturn(List.of(file1, file2));
+        when(sourceFileRepository.countByProject_Id(22L)).thenReturn(2L);
+        when(sourceFileRepository.deleteByProject_Id(22L)).thenReturn(2L);
 
         DeleteWorkspaceResponse response = workspaceService.deleteWorkspace(22L, "user@test.com");
 
@@ -650,7 +636,8 @@ class WorkspaceServiceTest {
         assertEquals("Workspace deleted successfully.", response.getMessage());
         assertFalse(Files.exists(workspaceRoot));
 
-        verify(sourceFileRepository).deleteAllInBatch(anyList());
+        verify(sourceFileRepository).countByProject_Id(22L);
+        verify(sourceFileRepository).deleteByProject_Id(22L);
         verify(projectRepository).delete(project);
     }
 
@@ -668,13 +655,15 @@ class WorkspaceServiceTest {
 
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
         when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
-        when(sourceFileRepository.findByProject_IdOrderByFilePathAsc(22L)).thenReturn(List.of());
+        when(sourceFileRepository.countByProject_Id(22L)).thenReturn(0L);
+        when(sourceFileRepository.deleteByProject_Id(22L)).thenReturn(0L);
 
         DeleteWorkspaceResponse response = workspaceService.deleteWorkspace(22L, "user@test.com");
 
         assertEquals(22L, response.getProjectId());
         assertEquals(0, response.getDeletedFiles());
-        verify(sourceFileRepository, never()).deleteAllInBatch(anyList());
+        verify(sourceFileRepository).countByProject_Id(22L);
+        verify(sourceFileRepository).deleteByProject_Id(22L);
         verify(projectRepository).delete(project);
     }
 
@@ -692,11 +681,12 @@ class WorkspaceServiceTest {
 
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
         when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
-        when(sourceFileRepository.findByProject_IdOrderByFilePathAsc(22L)).thenReturn(List.of());
 
         assertThrows(IllegalArgumentException.class,
                 () -> workspaceService.deleteWorkspace(22L, "user@test.com"));
 
+        verify(sourceFileRepository, never()).countByProject_Id(anyLong());
+        verify(sourceFileRepository, never()).deleteByProject_Id(anyLong());
         verify(projectRepository, never()).delete(any(Project.class));
     }
 
