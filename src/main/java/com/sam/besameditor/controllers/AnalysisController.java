@@ -2,7 +2,9 @@ package com.sam.besameditor.controllers;
 
 import com.sam.besameditor.dto.FunctionCfgResponse;
 import com.sam.besameditor.dto.JavaFileAnalysisResponse;
+import com.sam.besameditor.dto.JavaFileCoverageResponse;
 import com.sam.besameditor.services.CodeAnalysisService;
+import com.sam.besameditor.services.JavaCoverageService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,9 +19,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AnalysisController {
 
     private final CodeAnalysisService codeAnalysisService;
+    private final JavaCoverageService javaCoverageService;
 
-    public AnalysisController(CodeAnalysisService codeAnalysisService) {
+    public AnalysisController(CodeAnalysisService codeAnalysisService, JavaCoverageService javaCoverageService) {
         this.codeAnalysisService = codeAnalysisService;
+        this.javaCoverageService = javaCoverageService;
     }
 
     @PostMapping("/java")
@@ -28,6 +32,14 @@ public class AnalysisController {
             @RequestParam("path") String path,
             Authentication authentication) {
         return ResponseEntity.ok(codeAnalysisService.analyzeJavaFile(projectId, path, authentication.getName()));
+    }
+
+    @PostMapping("/java/coverage")
+    public ResponseEntity<JavaFileCoverageResponse> runJavaCoverage(
+            @PathVariable Long projectId,
+            @RequestParam("path") String path,
+            Authentication authentication) {
+        return ResponseEntity.ok(javaCoverageService.runJavaCoverage(projectId, path, authentication.getName()));
     }
 
     @GetMapping("/functions")
@@ -42,7 +54,11 @@ public class AnalysisController {
     public ResponseEntity<FunctionCfgResponse> getFunctionCfg(
             @PathVariable Long projectId,
             @PathVariable Long functionId,
+            @RequestParam(value = "coverageRunId", required = false) Long coverageRunId,
             Authentication authentication) {
-        return ResponseEntity.ok(codeAnalysisService.getFunctionCfg(projectId, functionId, authentication.getName()));
+        if (coverageRunId == null) {
+            return ResponseEntity.ok(codeAnalysisService.getFunctionCfg(projectId, functionId, authentication.getName()));
+        }
+        return ResponseEntity.ok(javaCoverageService.getFunctionCfgWithCoverage(projectId, functionId, coverageRunId, authentication.getName()));
     }
 }
