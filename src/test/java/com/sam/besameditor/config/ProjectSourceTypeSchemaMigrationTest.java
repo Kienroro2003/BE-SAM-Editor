@@ -14,6 +14,7 @@ import java.sql.SQLException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -60,6 +61,71 @@ class ProjectSourceTypeSchemaMigrationTest {
     @Test
     void migrateProjectSourceTypeColumn_ShouldSkip_WhenNotMySql() throws SQLException {
         mockDatabase("H2");
+
+        migration.migrateProjectSourceTypeColumn();
+
+        verify(jdbcTemplate, never()).queryForObject(any(String.class), eq(String.class), any(), any());
+        verify(jdbcTemplate, never()).execute(any(String.class));
+    }
+
+    @Test
+    void migrateProjectSourceTypeColumn_ShouldSkip_WhenColumnTypeBlank() throws SQLException {
+        mockDatabase("MySQL");
+        when(jdbcTemplate.queryForObject(any(String.class), eq(String.class), eq("projects"), eq("source_type")))
+                .thenReturn("   ");
+
+        migration.migrateProjectSourceTypeColumn();
+
+        verify(jdbcTemplate, never()).execute(any(String.class));
+    }
+
+    @Test
+    void migrateProjectSourceTypeColumn_ShouldSkip_WhenColumnTypeNull() throws SQLException {
+        mockDatabase("MySQL");
+        when(jdbcTemplate.queryForObject(any(String.class), eq(String.class), eq("projects"), eq("source_type")))
+                .thenReturn(null);
+
+        migration.migrateProjectSourceTypeColumn();
+
+        verify(jdbcTemplate, never()).execute(any(String.class));
+    }
+
+    @Test
+    void migrateProjectSourceTypeColumn_ShouldSkip_WhenColumnTypeIsNotEnum() throws SQLException {
+        mockDatabase("MySQL");
+        when(jdbcTemplate.queryForObject(any(String.class), eq(String.class), eq("projects"), eq("source_type")))
+                .thenReturn("varchar(255)");
+
+        migration.migrateProjectSourceTypeColumn();
+
+        verify(jdbcTemplate, never()).execute(any(String.class));
+    }
+
+    @Test
+    void migrateProjectSourceTypeColumn_ShouldSwallowDataAccessException() throws SQLException {
+        mockDatabase("MySQL");
+        doThrow(new org.springframework.dao.DataAccessResourceFailureException("boom"))
+                .when(jdbcTemplate)
+                .queryForObject(any(String.class), eq(String.class), eq("projects"), eq("source_type"));
+
+        migration.migrateProjectSourceTypeColumn();
+
+        verify(jdbcTemplate, never()).execute(any(String.class));
+    }
+
+    @Test
+    void migrateProjectSourceTypeColumn_ShouldSkip_WhenDatabaseLookupFails() throws SQLException {
+        when(dataSource.getConnection()).thenThrow(new SQLException("boom"));
+
+        migration.migrateProjectSourceTypeColumn();
+
+        verify(jdbcTemplate, never()).queryForObject(any(String.class), eq(String.class), any(), any());
+        verify(jdbcTemplate, never()).execute(any(String.class));
+    }
+
+    @Test
+    void migrateProjectSourceTypeColumn_ShouldSkip_WhenDatabaseProductNameMissing() throws SQLException {
+        mockDatabase(null);
 
         migration.migrateProjectSourceTypeColumn();
 

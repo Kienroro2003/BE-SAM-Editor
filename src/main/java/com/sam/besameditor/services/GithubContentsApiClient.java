@@ -8,9 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
-import org.springframework.web.util.UriUtils;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 
@@ -38,10 +36,10 @@ public class GithubContentsApiClient implements GithubRepositoryTreeClient {
 
     @Override
     public List<GithubContentItem> listDirectory(String owner, String repo, String path) {
-        String encodedPath = UriUtils.encodePath(path == null ? "" : path, StandardCharsets.UTF_8);
-        String endpoint = encodedPath.isBlank()
+        String normalizedPath = path == null ? "" : path.trim();
+        String endpoint = normalizedPath.isBlank()
                 ? "/repos/" + owner + "/" + repo + "/contents"
-                : "/repos/" + owner + "/" + repo + "/contents/" + encodedPath;
+                : "/repos/" + owner + "/" + repo + "/contents/" + normalizedPath;
 
         try {
             List<GithubContentsItemResponse> items = webClient.get()

@@ -42,6 +42,15 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void handleIllegalArgument_ShouldUseFallbackMessage_WhenMessageIsBlank() {
+        ResponseEntity<Map<String, String>> response =
+                exceptionHandler.handleIllegalArgument(new IllegalArgumentException("   "));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("Invalid request", response.getBody().get("message"));
+    }
+
+    @Test
     void handleBadCredentials_ShouldReturnUnauthorized() {
         ResponseEntity<Map<String, String>> response =
                 exceptionHandler.handleBadCredentials(new BadCredentialsException("wrong"));
@@ -154,6 +163,15 @@ class GlobalExceptionHandlerTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("Invalid JSON request body", response.getBody().get("message"));
+    }
+
+    @Test
+    void handleUnexpected_ShouldReturnInternalServerError() {
+        ResponseEntity<Map<String, String>> response =
+                exceptionHandler.handleUnexpected(new RuntimeException("boom"));
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertEquals("Internal server error", response.getBody().get("message"));
     }
 
     @SuppressWarnings("unused")
