@@ -2,6 +2,7 @@ package com.sam.besameditor.services;
 
 import com.sam.besameditor.exceptions.WorkspaceStorageException;
 import org.junit.jupiter.api.Test;
+import org.eclipse.jgit.api.Git;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.ByteArrayOutputStream;
@@ -65,6 +66,106 @@ class GitCloneWorkspaceSourceStorageServiceTest {
             ));
 
             assertThrows(WorkspaceStorageException.class, () -> service.extractZipArchive(7L, 99L, zipFile));
+        } finally {
+            deleteDirectory(storageRoot);
+        }
+    }
+
+    @Test
+    void copyLocalFolder_ShouldCopyFilesAndSkipBlacklistedPaths() throws IOException {
+        Path storageRoot = Files.createTempDirectory("workspace-storage-");
+        Path sourceRoot = Files.createTempDirectory("workspace-source-");
+        try {
+            Files.createDirectories(sourceRoot.resolve("src"));
+            Files.createDirectories(sourceRoot.resolve("node_modules/lib"));
+            Files.createDirectories(sourceRoot.resolve(".git"));
+            Files.writeString(sourceRoot.resolve("src/App.java"), "class App {}", StandardCharsets.UTF_8);
+            Files.writeString(sourceRoot.resolve("node_modules/lib/index.js"), "module.exports = {}", StandardCharsets.UTF_8);
+            Files.writeString(sourceRoot.resolve(".git/config"), "[core]", StandardCharsets.UTF_8);
+
+            GitCloneWorkspaceSourceStorageService service = new GitCloneWorkspaceSourceStorageService(
+                    storageRoot.toString(),
+                    60,
+                    ".git,node_modules,target,dist,build,.idea,.vscode"
+            );
+
+            String targetPath = service.copyLocalFolder(7L, 99L, sourceRoot);
+            Path targetRoot = Paths.get(targetPath);
+
+            assertTrue(Files.exists(targetRoot.resolve("src/App.java")));
+            assertFalse(Files.exists(targetRoot.resolve("node_modules")));
+            assertFalse(Files.exists(targetRoot.resolve(".git")));
+        } finally {
+            deleteDirectory(storageRoot);
+            deleteDirectory(sourceRoot);
+        }
+    }
+
+    @Test
+    void copyLocalFolder_ShouldThrow_WhenSourceFolderMissing() throws IOException {
+        Path storageRoot = Files.createTempDirectory("workspace-storage-");
+        try {
+            GitCloneWorkspaceSourceStorageService service = new GitCloneWorkspaceSourceStorageService(
+                    storageRoot.toString(),
+                    60,
+                    ".git,node_modules,target,dist,build,.idea,.vscode"
+            );
+
+            assertThrows(
+                    WorkspaceStorageException.class,
+                    () -> service.copyLocalFolder(7L, 99L, storageRoot.resolve("missing-folder"))
+            );
+        } finally {
+            deleteDirectory(storageRoot);
+        }
+    }
+
+    @Test
+    void cloneGithubRepository_ShouldCloneLocalRepository() throws Exception {
+        Path storageRoot = Files.createTempDirectory("workspace-storage-");
+        Path sourceRepo = Files.createTempDirectory("workspace-source-repo-");
+        try {
+            Files.writeString(sourceRepo.resolve("README.md"), "# Demo", StandardCharsets.UTF_8);
+            try (Git git = Git.init().setDirectory(sourceRepo.toFile()).call()) {
+                git.add().addFilepattern("README.md").call();
+                git.commit()
+                        .setMessage("init")
+                        .setAuthor("Test User", "test@example.com")
+                        .setCommitter("Test User", "test@example.com")
+                        .call();
+            }
+
+            GitCloneWorkspaceSourceStorageService service = new GitCloneWorkspaceSourceStorageService(
+                    storageRoot.toString(),
+                    60,
+                    ".git,node_modules,target,dist,build,.idea,.vscode"
+            );
+
+            String clonedPath = service.cloneGithubRepository(7L, 99L, sourceRepo.toUri().toString());
+            Path clonedRoot = Paths.get(clonedPath);
+
+            assertTrue(Files.exists(clonedRoot.resolve("README.md")));
+            assertTrue(Files.exists(clonedRoot.resolve(".git")));
+        } finally {
+            deleteDirectory(storageRoot);
+            deleteDirectory(sourceRepo);
+        }
+    }
+
+    @Test
+    void cloneGithubRepository_ShouldThrow_WhenRepositoryUrlInvalid() throws IOException {
+        Path storageRoot = Files.createTempDirectory("workspace-storage-");
+        try {
+            GitCloneWorkspaceSourceStorageService service = new GitCloneWorkspaceSourceStorageService(
+                    storageRoot.toString(),
+                    60,
+                    ".git,node_modules,target,dist,build,.idea,.vscode"
+            );
+
+            assertThrows(
+                    WorkspaceStorageException.class,
+                    () -> service.cloneGithubRepository(7L, 99L, "file:///missing/repository.git")
+            );
         } finally {
             deleteDirectory(storageRoot);
         }
