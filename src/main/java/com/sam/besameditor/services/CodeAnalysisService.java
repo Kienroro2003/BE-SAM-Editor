@@ -47,6 +47,7 @@ import java.util.Map;
 @Service
 public class CodeAnalysisService {
 
+    private static final String ANALYSIS_CACHE_VERSION = "analysis-v2";
     private static final TypeReference<List<GraphNodeDraft>> GRAPH_NODE_LIST_TYPE = new TypeReference<>() {
     };
     private static final TypeReference<List<GraphEdgeDraft>> GRAPH_EDGE_LIST_TYPE = new TypeReference<>() {
@@ -252,7 +253,6 @@ public class CodeAnalysisService {
     }
 
     private void clearSourceFileCache(Long sourceFileId) {
-        flowGraphDataRepository.deleteByAnalyzedFunction_SourceFile_Id(sourceFileId);
         analyzedFunctionRepository.deleteBySourceFile_Id(sourceFileId);
     }
 
@@ -344,7 +344,10 @@ public class CodeAnalysisService {
     private String hashContent(String content) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(content.getBytes(StandardCharsets.UTF_8)));
+            digest.update(ANALYSIS_CACHE_VERSION.getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) '\n');
+            digest.update(content.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 is not available", ex);
         }

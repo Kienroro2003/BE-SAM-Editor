@@ -29,13 +29,54 @@ class JavaSourceAnalyzerTest {
         FunctionAnalysisDraft function = result.functions().get(0);
         assertEquals("divide", function.functionName());
         assertEquals("int divide(int a, int b)", function.signature());
-        assertEquals(3, function.cyclomaticComplexity());
+        assertEquals(2, function.cyclomaticComplexity());
+        assertEquals(function.edges().size() - function.nodes().size() + 2, function.cyclomaticComplexity());
         assertFalse(function.nodes().isEmpty());
         assertFalse(function.edges().isEmpty());
         assertNotNull(function.entryNodeId());
         assertEquals(1, function.exitNodeIds().size());
         assertTrue(function.nodes().stream().anyMatch(node -> "CONDITION".equals(node.type())));
         assertTrue(function.nodes().stream().anyMatch(node -> "RETURN".equals(node.type())));
+    }
+
+    @Test
+    void analyze_ShouldKeepCcConsistentWithCfg_ForAverageSample() {
+        String source = """
+                class AverageCalculator {
+                    int average(int[] value, int minimum, int maximum) {
+                        int i = 0;
+                        int inputNumber = 0;
+                        int validNumber = 0;
+                        int sum = 0;
+                        int average;
+
+                        while ((value[i] != -999) && (inputNumber < 100)) {
+                            inputNumber++;
+                            if ((value[i] >= minimum) && (value[i] <= maximum)) {
+                                validNumber++;
+                                sum = sum + value[i];
+                            } else {
+                                break;
+                            }
+                            i++;
+                        }
+
+                        if (validNumber > 0) {
+                            average = sum / validNumber;
+                        } else {
+                            average = -999;
+                        }
+
+                        return average;
+                    }
+                }
+                """;
+
+        JavaFileAnalysisResult result = analyzer.analyze("AverageCalculator.java", source);
+
+        FunctionAnalysisDraft function = result.functions().get(0);
+        assertEquals(4, function.cyclomaticComplexity());
+        assertEquals(function.edges().size() - function.nodes().size() + 2, function.cyclomaticComplexity());
     }
 
     @Test

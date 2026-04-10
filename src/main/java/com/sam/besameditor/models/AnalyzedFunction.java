@@ -1,5 +1,6 @@
 package com.sam.besameditor.models;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -54,7 +55,7 @@ public class AnalyzedFunction {
     @Column(nullable = false)
     private int cyclomaticComplexity;
 
-    @OneToOne(mappedBy = "analyzedFunction", fetch = FetchType.LAZY)
+    @OneToOne(mappedBy = "analyzedFunction", fetch = FetchType.LAZY, cascade = CascadeType.REMOVE, orphanRemoval = true)
     private FlowGraphData flowGraphData;
 
     @CreationTimestamp

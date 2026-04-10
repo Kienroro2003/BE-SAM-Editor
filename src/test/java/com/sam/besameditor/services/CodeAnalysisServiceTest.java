@@ -42,6 +42,8 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class CodeAnalysisServiceTest {
 
+    private static final String ANALYSIS_CACHE_VERSION = "analysis-v2";
+
     @Mock
     private UserRepository userRepository;
     @Mock
@@ -234,6 +236,35 @@ class CodeAnalysisServiceTest {
         assertEquals("Analysis cache is stale. Re-run analysis.", exception.getMessage());
     }
 
+    @Test
+    void getFunctionSummaries_ShouldThrow_WhenCacheUsesLegacyAnalyzerHash() throws IOException {
+        Path workspaceRoot = Files.createDirectories(tempDir.resolve("project-20"));
+        String relativePath = "src/Sample.java";
+        String content = """
+                class Sample {
+                    int average(int[] value, int minimum, int maximum) {
+                        return 0;
+                    }
+                }
+                """;
+        writeJavaFile(workspaceRoot, relativePath, content);
+
+        User user = createUser(9L, "user@test.com");
+        Project project = createProject(20L, user, workspaceRoot);
+        SourceFile sourceFile = createSourceFile(24L, project, relativePath, "JAVA");
+        sourceFile.setAnalysisHash(legacyHashContent(content));
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(20L, 9L)).thenReturn(Optional.of(project));
+        when(sourceFileRepository.findByProject_IdAndFilePath(20L, relativePath)).thenReturn(Optional.of(sourceFile));
+
+        NotFoundException exception = assertThrows(
+                NotFoundException.class,
+                () -> codeAnalysisService.getFunctionSummaries(20L, relativePath, "user@test.com"));
+
+        assertEquals("Analysis cache is stale. Re-run analysis.", exception.getMessage());
+    }
+
     private User createUser(Long id, String email) {
         User user = new User();
         user.setId(id);
@@ -266,6 +297,18 @@ class CodeAnalysisServiceTest {
     }
 
     private String hashContent(String content) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(ANALYSIS_CACHE_VERSION.getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) '\n');
+            digest.update(content.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    private String legacyHashContent(String content) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(digest.digest(content.getBytes(StandardCharsets.UTF_8)));

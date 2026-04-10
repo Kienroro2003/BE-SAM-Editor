@@ -252,13 +252,6 @@ public class WorkspaceService {
         String normalizedFolderPath = normalizePath(relativeFolderPath.toString());
         String folderPrefix = normalizedFolderPath + "/";
 
-        flowGraphDataRepository.deleteByAnalyzedFunction_SourceFile_Project_IdAndAnalyzedFunction_SourceFile_FilePath(
-                projectId,
-                normalizedFolderPath);
-        flowGraphDataRepository
-                .deleteByAnalyzedFunction_SourceFile_Project_IdAndAnalyzedFunction_SourceFile_FilePathStartingWith(
-                        projectId,
-                        folderPrefix);
         analyzedFunctionRepository.deleteBySourceFile_Project_IdAndSourceFile_FilePath(projectId, normalizedFolderPath);
         analyzedFunctionRepository.deleteBySourceFile_Project_IdAndSourceFile_FilePathStartingWith(projectId, folderPrefix);
 
@@ -280,7 +273,6 @@ public class WorkspaceService {
 
         Path workspaceRoot = resolveWorkspaceRootForDelete(project);
         long deletedFileCount = sourceFileRepository.countByProject_Id(projectId);
-        flowGraphDataRepository.deleteByAnalyzedFunction_SourceFile_Project_Id(projectId);
         analyzedFunctionRepository.deleteBySourceFile_Project_Id(projectId);
         sourceFileRepository.deleteByProject_Id(projectId);
 

@@ -1,11 +1,9 @@
 package com.sam.besameditor.analysis;
 
-import com.sun.source.tree.BinaryTree;
 import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CaseTree;
 import com.sun.source.tree.CatchTree;
 import com.sun.source.tree.CompilationUnitTree;
-import com.sun.source.tree.ConditionalExpressionTree;
 import com.sun.source.tree.DoWhileLoopTree;
 import com.sun.source.tree.EnhancedForLoopTree;
 import com.sun.source.tree.ForLoopTree;
@@ -103,8 +101,8 @@ public class JavaSourceAnalyzer {
         for (MethodTree method : methods) {
             int startLine = lineOf(compilationUnit, sourcePositions.getStartPosition(compilationUnit, method));
             int endLine = endLineOf(compilationUnit, sourcePositions, method);
-            int cyclomaticComplexity = 1 + new CyclomaticComplexityScanner().scan(method.getBody(), null);
             ControlFlowGraph graph = new ControlFlowGraphBuilder(compilationUnit, sourcePositions, sourceCode).build(method);
+            int cyclomaticComplexity = cyclomaticComplexityOf(graph);
             functions.add(new FunctionAnalysisDraft(
                     method.getName().toString(),
                     buildSignature(method),
@@ -118,6 +116,11 @@ public class JavaSourceAnalyzer {
         }
 
         return functions;
+    }
+
+    private int cyclomaticComplexityOf(ControlFlowGraph graph) {
+        int complexity = graph.edges().size() - graph.nodes().size() + 2;
+        return Math.max(1, complexity);
     }
 
     private String buildSignature(MethodTree method) {
@@ -153,66 +156,6 @@ public class JavaSourceAnalyzer {
             List<GraphEdgeDraft> edges,
             String entryNodeId,
             List<String> exitNodeIds) {
-    }
-
-    private static final class CyclomaticComplexityScanner extends TreeScanner<Integer, Void> {
-        @Override
-        public Integer reduce(Integer first, Integer second) {
-            return normalize(first) + normalize(second);
-        }
-
-        @Override
-        public Integer visitIf(IfTree node, Void unused) {
-            return 1 + super.visitIf(node, unused);
-        }
-
-        @Override
-        public Integer visitForLoop(ForLoopTree node, Void unused) {
-            return 1 + super.visitForLoop(node, unused);
-        }
-
-        @Override
-        public Integer visitEnhancedForLoop(EnhancedForLoopTree node, Void unused) {
-            return 1 + super.visitEnhancedForLoop(node, unused);
-        }
-
-        @Override
-        public Integer visitWhileLoop(WhileLoopTree node, Void unused) {
-            return 1 + super.visitWhileLoop(node, unused);
-        }
-
-        @Override
-        public Integer visitDoWhileLoop(DoWhileLoopTree node, Void unused) {
-            return 1 + super.visitDoWhileLoop(node, unused);
-        }
-
-        @Override
-        public Integer visitCatch(CatchTree node, Void unused) {
-            return 1 + super.visitCatch(node, unused);
-        }
-
-        @Override
-        public Integer visitConditionalExpression(ConditionalExpressionTree node, Void unused) {
-            return 1 + super.visitConditionalExpression(node, unused);
-        }
-
-        @Override
-        public Integer visitBinary(BinaryTree node, Void unused) {
-            int count = node.getKind() == Tree.Kind.CONDITIONAL_AND || node.getKind() == Tree.Kind.CONDITIONAL_OR
-                    ? 1
-                    : 0;
-            return count + super.visitBinary(node, unused);
-        }
-
-        @Override
-        public Integer visitCase(CaseTree node, Void unused) {
-            int count = isDefaultCase(node) ? 0 : 1;
-            return count + super.visitCase(node, unused);
-        }
-
-        private int normalize(Integer value) {
-            return value == null ? 0 : value;
-        }
     }
 
     private static boolean isDefaultCase(CaseTree caseTree) {
