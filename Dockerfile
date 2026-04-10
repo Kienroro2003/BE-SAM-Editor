@@ -11,7 +11,7 @@ RUN ./mvnw -DskipTests dependency:go-offline
 COPY src src
 RUN ./mvnw -DskipTests clean package
 
-FROM eclipse-temurin:17-jre AS runtime
+FROM eclipse-temurin:17-jdk AS runtime
 WORKDIR /app
 
 RUN mkdir -p /app/workspace-storage
@@ -22,4 +22,6 @@ EXPOSE 8080
 
 ENV APP_WORKSPACE_STORAGE_ROOT=/app/workspace-storage
 
+# JavaSourceAnalyzer uses the JDK compiler/tree APIs at runtime,
+# so the runtime image must include the full JDK rather than a JRE.
 ENTRYPOINT ["sh", "-c", "java ${JAVA_OPTS} -jar /app/app.jar"]

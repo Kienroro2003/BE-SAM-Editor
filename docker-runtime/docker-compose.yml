@@ -1,0 +1,50 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-sam_editor_db}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  backend:
+    image: ${BACKEND_IMAGE_NAME:-kienroro/be-sam-editor-backend}:${BACKEND_IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-sam_editor_db}?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      APP_WORKSPACE_STORAGE_ROOT: /app/workspace-storage
+      APP_OAUTH2_REDIRECT_URI: ${APP_OAUTH2_REDIRECT_URI:-http://localhost:3000/oauth2/success}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-github-client-id}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-github-client-secret}
+      APP_GITHUB_TOKEN: ${APP_GITHUB_TOKEN:-}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-VGhpc0lzQURlbW9TZWNyZXRLZXlGb3JKV1RUb2tlbkdlbmVyYXRpb24xMjM0NQ==}
+      APP_JWT_EXPIRATION_MS: ${APP_JWT_EXPIRATION_MS:-900000}
+      APP_JWT_REFRESH_EXPIRATION_DAYS: ${APP_JWT_REFRESH_EXPIRATION_DAYS:-7}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-your-email@gmail.com}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-your-app-password}
+      APP_OTP_EXPIRY_MINUTES: ${APP_OTP_EXPIRY_MINUTES:-5}
+    volumes:
+      - workspace-data:/app/workspace-storage
+
+volumes:
+  mysql-data:
+  workspace-data:
