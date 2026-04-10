@@ -967,6 +967,245 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Analysis",
+      "item": [
+        {
+          "name": "Analyze Java File",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const accessToken = pm.environment.get('accessToken');",
+                  "if (!accessToken) {",
+                  "  throw new Error('accessToken is empty. Run Verify OTP or Login first.');",
+                  "}",
+                  "const projectId = pm.environment.get('projectId');",
+                  "if (!projectId) {",
+                  "  throw new Error('projectId is empty. Run import or list workspaces first.');",
+                  "}",
+                  "const workspaceFilePath = pm.environment.get('workspaceFilePath');",
+                  "if (!workspaceFilePath) {",
+                  "  throw new Error('workspaceFilePath is empty. Set a JAVA file path from workspace tree.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('Response has analysis summary fields', function () {",
+                  "  pm.expect(body.projectId).to.exist;",
+                  "  pm.expect(body.path).to.exist;",
+                  "  pm.expect(body.language).to.exist;",
+                  "  pm.expect(Array.isArray(body.functions)).to.eql(true);",
+                  "  pm.expect(body.cached).to.be.a('boolean');",
+                  "});",
+                  "if (body.path) pm.environment.set('analysisPath', body.path);",
+                  "if (body.language) pm.environment.set('analysisLanguage', body.language);",
+                  "if (typeof body.cached === 'boolean') pm.environment.set('analysisCached', String(body.cached));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/{{projectId}}/analysis/java?path={{workspaceFilePath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "workspaces",
+                "{{projectId}}",
+                "analysis",
+                "java"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "{{workspaceFilePath}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Function Summaries",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const accessToken = pm.environment.get('accessToken');",
+                  "if (!accessToken) {",
+                  "  throw new Error('accessToken is empty. Run Verify OTP or Login first.');",
+                  "}",
+                  "const projectId = pm.environment.get('projectId');",
+                  "if (!projectId) {",
+                  "  throw new Error('projectId is empty. Run import or list workspaces first.');",
+                  "}",
+                  "const workspaceFilePath = pm.environment.get('workspaceFilePath');",
+                  "if (!workspaceFilePath) {",
+                  "  throw new Error('workspaceFilePath is empty. Set a JAVA file path from workspace tree.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('Response has function summary fields', function () {",
+                  "  pm.expect(body.projectId).to.exist;",
+                  "  pm.expect(body.path).to.exist;",
+                  "  pm.expect(body.language).to.exist;",
+                  "  pm.expect(Array.isArray(body.functions)).to.eql(true);",
+                  "  pm.expect(body.cached).to.be.a('boolean');",
+                  "});",
+                  "if (body.path) pm.environment.set('analysisPath', body.path);",
+                  "if (body.language) pm.environment.set('analysisLanguage', body.language);",
+                  "if (typeof body.cached === 'boolean') pm.environment.set('analysisCached', String(body.cached));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/{{projectId}}/analysis/functions?path={{workspaceFilePath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "workspaces",
+                "{{projectId}}",
+                "analysis",
+                "functions"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "{{workspaceFilePath}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Function CFG",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const accessToken = pm.environment.get('accessToken');",
+                  "if (!accessToken) {",
+                  "  throw new Error('accessToken is empty. Run Verify OTP or Login first.');",
+                  "}",
+                  "const projectId = pm.environment.get('projectId');",
+                  "if (!projectId) {",
+                  "  throw new Error('projectId is empty. Run import or list workspaces first.');",
+                  "}",
+                  "const functionId = pm.environment.get('functionId');",
+                  "if (!functionId) {",
+                  "  throw new Error('functionId is empty. Run Analyze Java File or Get Function Summaries and copy a functionId from response.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('Response has CFG fields', function () {",
+                  "  pm.expect(body.functionId).to.exist;",
+                  "  pm.expect(body.entryNodeId).to.exist;",
+                  "  pm.expect(Array.isArray(body.exitNodeIds)).to.eql(true);",
+                  "  pm.expect(Array.isArray(body.nodes)).to.eql(true);",
+                  "  pm.expect(Array.isArray(body.edges)).to.eql(true);",
+                  "});",
+                  "if (body.functionName) pm.environment.set('analysisFunctionName', body.functionName);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/{{projectId}}/analysis/functions/{{functionId}}/cfg",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "workspaces",
+                "{{projectId}}",
+                "analysis",
+                "functions",
+                "{{functionId}}",
+                "cfg"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

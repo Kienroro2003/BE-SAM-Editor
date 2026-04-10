@@ -5,11 +5,14 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface SourceFileRepository extends JpaRepository<SourceFile, Long> {
 
     List<SourceFile> findByProject_IdOrderByFilePathAsc(Long projectId);
+
+    Optional<SourceFile> findByProject_IdAndFilePath(Long projectId, String filePath);
 
     long countByProject_Id(Long projectId);
 

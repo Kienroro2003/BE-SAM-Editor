@@ -15,6 +15,8 @@ import com.sam.besameditor.models.ProjectSourceType;
 import com.sam.besameditor.models.SourceFile;
 import com.sam.besameditor.models.SourceFileStatus;
 import com.sam.besameditor.models.User;
+import com.sam.besameditor.repositories.AnalyzedFunctionRepository;
+import com.sam.besameditor.repositories.FlowGraphDataRepository;
 import com.sam.besameditor.repositories.ProjectRepository;
 import com.sam.besameditor.repositories.SourceFileRepository;
 import com.sam.besameditor.repositories.UserRepository;
@@ -51,6 +53,8 @@ public class WorkspaceService {
     private final UserRepository userRepository;
     private final ProjectRepository projectRepository;
     private final SourceFileRepository sourceFileRepository;
+    private final AnalyzedFunctionRepository analyzedFunctionRepository;
+    private final FlowGraphDataRepository flowGraphDataRepository;
     private final GithubRepositoryTreeClient githubRepositoryTreeClient;
     private final WorkspaceSourceStorageService workspaceSourceStorageService;
     private final long maxSizeBytes;
@@ -61,6 +65,8 @@ public class WorkspaceService {
             UserRepository userRepository,
             ProjectRepository projectRepository,
             SourceFileRepository sourceFileRepository,
+            AnalyzedFunctionRepository analyzedFunctionRepository,
+            FlowGraphDataRepository flowGraphDataRepository,
             GithubRepositoryTreeClient githubRepositoryTreeClient,
             WorkspaceSourceStorageService workspaceSourceStorageService,
             @Value("${app.workspace.max-size-bytes:15728640}") long maxSizeBytes,
@@ -69,6 +75,8 @@ public class WorkspaceService {
         this.userRepository = userRepository;
         this.projectRepository = projectRepository;
         this.sourceFileRepository = sourceFileRepository;
+        this.analyzedFunctionRepository = analyzedFunctionRepository;
+        this.flowGraphDataRepository = flowGraphDataRepository;
         this.githubRepositoryTreeClient = githubRepositoryTreeClient;
         this.workspaceSourceStorageService = workspaceSourceStorageService;
         this.maxSizeBytes = maxSizeBytes;
@@ -244,6 +252,16 @@ public class WorkspaceService {
         String normalizedFolderPath = normalizePath(relativeFolderPath.toString());
         String folderPrefix = normalizedFolderPath + "/";
 
+        flowGraphDataRepository.deleteByAnalyzedFunction_SourceFile_Project_IdAndAnalyzedFunction_SourceFile_FilePath(
+                projectId,
+                normalizedFolderPath);
+        flowGraphDataRepository
+                .deleteByAnalyzedFunction_SourceFile_Project_IdAndAnalyzedFunction_SourceFile_FilePathStartingWith(
+                        projectId,
+                        folderPrefix);
+        analyzedFunctionRepository.deleteBySourceFile_Project_IdAndSourceFile_FilePath(projectId, normalizedFolderPath);
+        analyzedFunctionRepository.deleteBySourceFile_Project_IdAndSourceFile_FilePathStartingWith(projectId, folderPrefix);
+
         long deletedFiles = sourceFileRepository.deleteByProject_IdAndFilePath(projectId, normalizedFolderPath);
         deletedFiles += sourceFileRepository.deleteByProject_IdAndFilePathStartingWith(projectId, folderPrefix);
 
@@ -262,6 +280,8 @@ public class WorkspaceService {
 
         Path workspaceRoot = resolveWorkspaceRootForDelete(project);
         long deletedFileCount = sourceFileRepository.countByProject_Id(projectId);
+        flowGraphDataRepository.deleteByAnalyzedFunction_SourceFile_Project_Id(projectId);
+        analyzedFunctionRepository.deleteBySourceFile_Project_Id(projectId);
         sourceFileRepository.deleteByProject_Id(projectId);
 
         if (workspaceRoot != null && Files.exists(workspaceRoot)) {

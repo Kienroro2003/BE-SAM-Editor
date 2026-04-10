@@ -42,6 +42,11 @@ public class SourceFile {
     @Column(nullable = false)
     private SourceFileStatus status = SourceFileStatus.AVAILABLE;
 
+    @Column(length = 64)
+    private String analysisHash;
+
+    private LocalDateTime analysisUpdatedAt;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;

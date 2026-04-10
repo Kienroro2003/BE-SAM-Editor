@@ -11,6 +11,8 @@ import com.sam.besameditor.models.Project;
 import com.sam.besameditor.models.ProjectSourceType;
 import com.sam.besameditor.models.SourceFile;
 import com.sam.besameditor.models.User;
+import com.sam.besameditor.repositories.AnalyzedFunctionRepository;
+import com.sam.besameditor.repositories.FlowGraphDataRepository;
 import com.sam.besameditor.repositories.ProjectRepository;
 import com.sam.besameditor.repositories.SourceFileRepository;
 import com.sam.besameditor.repositories.UserRepository;
@@ -47,6 +49,10 @@ class WorkspaceServiceTest {
     @Mock
     private SourceFileRepository sourceFileRepository;
     @Mock
+    private AnalyzedFunctionRepository analyzedFunctionRepository;
+    @Mock
+    private FlowGraphDataRepository flowGraphDataRepository;
+    @Mock
     private GithubRepositoryTreeClient githubRepositoryTreeClient;
     @Mock
     private WorkspaceSourceStorageService workspaceSourceStorageService;
@@ -62,6 +68,8 @@ class WorkspaceServiceTest {
                 userRepository,
                 projectRepository,
                 sourceFileRepository,
+                analyzedFunctionRepository,
+                flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
                 15_728_640L,
@@ -179,6 +187,8 @@ class WorkspaceServiceTest {
                 userRepository,
                 projectRepository,
                 sourceFileRepository,
+                analyzedFunctionRepository,
+                flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
                 10L,
@@ -310,6 +320,8 @@ class WorkspaceServiceTest {
                 userRepository,
                 projectRepository,
                 sourceFileRepository,
+                analyzedFunctionRepository,
+                flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
                 10L,
@@ -466,6 +478,8 @@ class WorkspaceServiceTest {
                 userRepository,
                 projectRepository,
                 sourceFileRepository,
+                analyzedFunctionRepository,
+                flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
                 15_728_640L,

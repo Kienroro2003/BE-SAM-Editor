@@ -13,7 +13,7 @@ Trong Postman, chọn environment `BE-SAM-Editor Local`.
 ```
 Mặc định API base URL: `http://localhost:8080`.
 
-## 4) Test flow đề xuất (Auth -> Workspace)
+## 4) Test flow đề xuất (Auth -> Workspace -> Analysis)
 1. `Register`
 2. Lấy OTP từ email và set vào biến `otpCode`
 3. `Verify OTP` (hoặc dùng `Login` nếu tài khoản đã verify)
@@ -26,9 +26,13 @@ Mặc định API base URL: `http://localhost:8080`.
 8. `Workspace > Get Workspace Tree`
 9. Set biến `workspaceFilePath` (ví dụ `src/main/App.java`) theo tree vừa nhận
 10. `Workspace > Get Workspace File Content`
-11. (Tuỳ chọn) `Workspace > Delete Workspace Folder` với `workspaceFolderPath`
-12. (Tuỳ chọn) `Workspace > Delete Workspace`
-13. `Logout` hoặc `Logout All`
+11. `Analysis > Analyze Java File`
+12. `Analysis > Get Function Summaries`
+13. Copy `functionId` từ response rồi set tay vào environment
+14. `Analysis > Get Function CFG`
+15. (Tuỳ chọn) `Workspace > Delete Workspace Folder` với `workspaceFolderPath`
+16. (Tuỳ chọn) `Workspace > Delete Workspace`
+17. `Logout` hoặc `Logout All`
 
 ## 5) Biến môi trường chính
 - `autoGenerateEmail=true`: mỗi lần `Register` sẽ tự tạo email mới.
@@ -38,6 +42,9 @@ Mặc định API base URL: `http://localhost:8080`.
 - `projectId`: tự được set sau khi import hoặc gọi list workspace.
 - `workspaceFilePath`: path file tương đối trong workspace dùng cho API đọc nội dung file.
 - `workspaceFolderPath`: path folder tương đối trong workspace dùng cho API xóa folder.
+- `functionId`: set thủ công sau khi đọc response từ `Analyze Java File` hoặc `Get Function Summaries`.
+- `analysisPath`, `analysisLanguage`, `analysisCached`: được set tự động sau khi chạy request analysis thành công.
+- `analysisFunctionName`: được set tự động sau khi lấy CFG thành công.
 - `accessToken`, `refreshToken`: tự được set sau `Verify OTP` / `Login` / `Refresh Token`.
 - `tokenType`: backend hiện trả `Bearer` (được set tự động khi login/verify/refresh).
 
@@ -52,6 +59,8 @@ Mặc định API base URL: `http://localhost:8080`.
 - `413`: tổng dung lượng source hợp lệ vượt giới hạn size
 - `400`: zip không hợp lệ hoặc không đúng định dạng `.zip`
 - `413`: nội dung file vượt `app.workspace.file-content-max-bytes` khi gọi API đọc file
+- `400`: analysis chỉ hỗ trợ file `JAVA`, path không hợp lệ, file quá lớn, file không phải UTF-8, hoặc source Java có lỗi cú pháp
+- `404`: workspace/file/function analysis không tồn tại, chưa có cache analysis, hoặc cache analysis đã stale
 
 ## 8) Quy tắc blacklist khi import workspace
 - Với `Import Local Folder Workspace` (upload zip), các path segment blacklist (`.git`, `node_modules`, `target`, `dist`, `build`, `.idea`, `.vscode`) sẽ bị bỏ qua khi index source files.
@@ -61,3 +70,8 @@ Mặc định API base URL: `http://localhost:8080`.
 ## 9) Tránh GitHub rate limit
 - Set biến môi trường backend `APP_GITHUB_TOKEN=<your_pat>` trước khi chạy app.
 - Có thể thêm trực tiếp vào file `.env` để backend tự nạp.
+
+## 10) Ghi chú cho Analysis API
+- `Analyze Java File` sẽ tự phân tích lại nếu nội dung file đã thay đổi; nếu cache còn hợp lệ thì response có `cached=true`.
+- `Get Function Summaries` và `Get Function CFG` không tự phân tích lại; nếu file đã đổi sau lần phân tích trước, backend sẽ báo cache stale.
+- Analysis hiện chỉ hỗ trợ file có `language = JAVA`.
