@@ -50,16 +50,21 @@ docker run --rm -p 8080:8080 \
 ```bash
 docker login
 
-docker build -t be-sam-editor-backend .
-docker tag be-sam-editor-backend kienroro2003/be-sam-editor-backend:latest
-docker push kienroro2003/be-sam-editor-backend:latest
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t kienroro2003/be-sam-editor-backend:latest \
+  --push \
+  .
 ```
 
 For a versioned release:
 
 ```bash
-docker tag be-sam-editor-backend kienroro2003/be-sam-editor-backend:v1.0.0
-docker push kienroro2003/be-sam-editor-backend:v1.0.0
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t kienroro2003/be-sam-editor-backend:v1.0.0 \
+  --push \
+  .
 ```
 
 ### 5) Publish to Docker Hub automatically with GitHub Actions
@@ -75,7 +80,7 @@ When those are configured, the workflow will:
 - run Maven tests
 - build the Spring Boot jar
 - upload the jar artifact
-- build and push the Docker image to Docker Hub
+- build and push a multi-arch Docker image to Docker Hub for `linux/amd64` and `linux/arm64`
 
 Stop the local stack:
 
