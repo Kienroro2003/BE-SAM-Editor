@@ -1,0 +1,17 @@
+.git
+.gitignore
+.idea
+.agent
+.claude
+
+frontend
+workspace-storage
+output
+docs
+
+target
+**/target
+
+.env
+*.log
+.DS_Store
