@@ -33,3 +33,15 @@ build/
 .vscode/
 .env
 src/main/resources/firebase-service-account.json
+
+# Frontend workspace
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env.local
+
+# Local machine / agent artifacts
+.DS_Store
+.agent/
+.claude/
+workspace-storage/
