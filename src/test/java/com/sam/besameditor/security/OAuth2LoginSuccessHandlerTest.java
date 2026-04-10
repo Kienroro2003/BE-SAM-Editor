@@ -57,4 +57,92 @@ class OAuth2LoginSuccessHandlerTest {
         assertEquals("http://localhost:3000/oauth2/success?token=abc%2B%2F%3D&refreshToken=refresh%2B%2F%3D",
                 response.getRedirectedUrl());
     }
+
+    @Test
+    void onAuthenticationSuccess_ShouldRedirectWithoutRefreshToken_WhenMissingRefreshToken() throws Exception {
+        OAuth2User oauth2User = new DefaultOAuth2User(
+                Collections.emptyList(),
+                Map.of("id", 1, "login", "githubuser"),
+                "id"
+        );
+
+        when(authentication.getPrincipal()).thenReturn(oauth2User);
+        when(authService.processGithubLogin(oauth2User))
+                .thenReturn(new AuthResponse("abc+/=", null, "github@user.com", "GitHub User"));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        successHandler.onAuthenticationSuccess(request, response, authentication);
+
+        assertEquals("http://localhost:3000/oauth2/success?token=abc%2B%2F%3D",
+                response.getRedirectedUrl());
+    }
+
+    @Test
+    void onAuthenticationSuccess_ShouldRedirectWithoutRefreshToken_WhenRefreshTokenBlank() throws Exception {
+        OAuth2User oauth2User = new DefaultOAuth2User(
+                Collections.emptyList(),
+                Map.of("id", 1, "login", "githubuser"),
+                "id"
+        );
+
+        when(authentication.getPrincipal()).thenReturn(oauth2User);
+        when(authService.processGithubLogin(oauth2User))
+                .thenReturn(new AuthResponse("token-value", "   ", "github@user.com", "GitHub User"));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRequestURI("/login/oauth2/code/github");
+        request.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        successHandler.onAuthenticationSuccess(request, response, authentication);
+
+        assertEquals("http://localhost:3000/oauth2/success?token=token-value",
+                response.getRedirectedUrl());
+    }
+
+    @Test
+    void onAuthenticationSuccess_ShouldRedirectWithError_WhenAccessTokenMissing() throws Exception {
+        OAuth2User oauth2User = new DefaultOAuth2User(
+                Collections.emptyList(),
+                Map.of("id", 1, "login", "githubuser"),
+                "id"
+        );
+
+        when(authentication.getPrincipal()).thenReturn(oauth2User);
+        when(authService.processGithubLogin(oauth2User))
+                .thenReturn(new AuthResponse("   ", "refresh", "github@user.com", "GitHub User"));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRequestURI("/login/oauth2/code/github");
+        request.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        successHandler.onAuthenticationSuccess(request, response, authentication);
+
+        assertEquals("http://localhost:3000/oauth2/success?error=GitHub+login+failed",
+                response.getRedirectedUrl());
+    }
+
+    @Test
+    void onAuthenticationSuccess_ShouldRedirectWithError_WhenUnexpectedExceptionOccurs() throws Exception {
+        OAuth2User oauth2User = new DefaultOAuth2User(
+                Collections.emptyList(),
+                Map.of("id", 1, "login", "githubuser"),
+                "id"
+        );
+
+        when(authentication.getPrincipal()).thenReturn(oauth2User);
+        when(authService.processGithubLogin(oauth2User))
+                .thenThrow(new RuntimeException("boom"));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        successHandler.onAuthenticationSuccess(request, response, authentication);
+
+        assertEquals("http://localhost:3000/oauth2/success?error=GitHub+login+failed",
+                response.getRedirectedUrl());
+    }
 }

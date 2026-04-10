@@ -14,6 +14,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -137,5 +138,36 @@ class JwtAuthenticationFilterTest {
 
         assertNull(SecurityContextHolder.getContext().getAuthentication());
         verifyNoInteractions(userDetailsService);
+    }
+
+    @Test
+    void doFilter_ShouldNotFail_WhenUserNotFoundForTokenSubject() throws ServletException, IOException {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization", "Bearer valid-token-unknown-user");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        when(jwtService.extractUsername("valid-token-unknown-user")).thenReturn("ghost@test.com");
+        when(userDetailsService.loadUserByUsername("ghost@test.com"))
+                .thenThrow(new UsernameNotFoundException("User not found: ghost@test.com"));
+
+        jwtAuthenticationFilter.doFilter(request, response, chain);
+
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verify(userDetailsService).loadUserByUsername("ghost@test.com");
+    }
+
+    @Test
+    void doFilter_ShouldClearContext_WhenUnexpectedExceptionOccurs() throws ServletException, IOException {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization", "Bearer exploding-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        when(jwtService.extractUsername("exploding-token")).thenThrow(new IllegalStateException("boom"));
+
+        jwtAuthenticationFilter.doFilter(request, response, chain);
+
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
     }
 }
