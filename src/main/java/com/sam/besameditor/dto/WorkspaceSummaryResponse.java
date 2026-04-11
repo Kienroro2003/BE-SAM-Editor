@@ -10,6 +10,7 @@ public class WorkspaceSummaryResponse {
     private final String name;
     private final ProjectSourceType sourceType;
     private final String sourceUrl;
+    private final String cloudinaryUrl;
     private final LocalDateTime createdAt;
     private final LocalDateTime updatedAt;
 
@@ -18,12 +19,14 @@ public class WorkspaceSummaryResponse {
             String name,
             ProjectSourceType sourceType,
             String sourceUrl,
+            String cloudinaryUrl,
             LocalDateTime createdAt,
             LocalDateTime updatedAt) {
         this.projectId = projectId;
         this.name = name;
         this.sourceType = sourceType;
         this.sourceUrl = sourceUrl;
+        this.cloudinaryUrl = cloudinaryUrl;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -42,6 +45,10 @@ public class WorkspaceSummaryResponse {
 
     public String getSourceUrl() {
         return sourceUrl;
+    }
+
+    public String getCloudinaryUrl() {
+        return cloudinaryUrl;
     }
 
     public LocalDateTime getCreatedAt() {

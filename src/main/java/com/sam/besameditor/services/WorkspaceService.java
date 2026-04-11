@@ -203,7 +203,8 @@ public class WorkspaceService {
                 savedProject.getName(),
                 savedProject.getSourceUrl(),
                 localImportResult.snapshots().size(),
-                localImportResult.totalSizeBytes());
+                localImportResult.totalSizeBytes(),
+                savedProject.getCloudinaryUrl());
     }
 
     @Transactional(readOnly = true)
@@ -215,6 +216,7 @@ public class WorkspaceService {
                         project.getName(),
                         project.getSourceType(),
                         project.getSourceUrl(),
+                        project.getCloudinaryUrl(),
                         project.getCreatedAt(),
                         project.getUpdatedAt()))
                 .toList();
@@ -645,6 +647,15 @@ public class WorkspaceService {
             throw new IllegalArgumentException("Workspace source path is invalid", ex);
         }
 
+        if ((!Files.exists(workspaceRoot) || !Files.isDirectory(workspaceRoot))
+                && cloudinaryWorkspaceStorageService.isEnabled()
+                && hasCloudinaryArchive(project)) {
+            cloudinaryWorkspaceStorageService.restoreWorkspaceArchive(
+                    workspaceRoot,
+                    project.getCloudinaryPublicId(),
+                    project.getCloudinaryUrl());
+        }
+
         if (!Files.exists(workspaceRoot) || !Files.isDirectory(workspaceRoot)) {
             throw new NotFoundException("Workspace source not found on server");
         }
@@ -873,6 +884,11 @@ public class WorkspaceService {
 
     private boolean startsWithParentTraversal(Path path) {
         return path.getNameCount() > 0 && "..".equals(path.getName(0).toString());
+    }
+
+    private boolean hasCloudinaryArchive(Project project) {
+        return (project.getCloudinaryPublicId() != null && !project.getCloudinaryPublicId().isBlank())
+                || (project.getCloudinaryUrl() != null && !project.getCloudinaryUrl().isBlank());
     }
 
     private void deleteTempFileIfExists(Path path) {
