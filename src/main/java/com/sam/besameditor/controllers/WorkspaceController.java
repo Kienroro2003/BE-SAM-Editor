@@ -4,6 +4,8 @@ import com.sam.besameditor.dto.DeleteWorkspaceFolderResponse;
 import com.sam.besameditor.dto.DeleteWorkspaceResponse;
 import com.sam.besameditor.dto.ImportGithubWorkspaceRequest;
 import com.sam.besameditor.dto.ImportGithubWorkspaceResponse;
+import com.sam.besameditor.dto.PatchWorkspaceArchiveRequest;
+import com.sam.besameditor.dto.PatchWorkspaceArchiveResponse;
 import com.sam.besameditor.dto.WorkspaceFileContentResponse;
 import com.sam.besameditor.dto.WorkspaceSummaryResponse;
 import com.sam.besameditor.dto.WorkspaceTreeResponse;
@@ -68,6 +70,15 @@ public class WorkspaceController {
             Authentication authentication) {
         return ResponseEntity.ok(
                 workspaceService.getWorkspaceFileContent(projectId, path, authentication.getName()));
+    }
+
+    @PatchMapping("/{projectId}/archive")
+    public ResponseEntity<PatchWorkspaceArchiveResponse> patchWorkspaceArchive(
+            @PathVariable Long projectId,
+            @Valid @RequestBody PatchWorkspaceArchiveRequest request,
+            Authentication authentication) {
+        return ResponseEntity.ok(
+                workspaceService.patchWorkspaceArchive(projectId, request, authentication.getName()));
     }
 
     @DeleteMapping("/{projectId}/folders")

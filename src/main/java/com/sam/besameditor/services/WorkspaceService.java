@@ -3,6 +3,8 @@ package com.sam.besameditor.services;
 import com.sam.besameditor.dto.DeleteWorkspaceFolderResponse;
 import com.sam.besameditor.dto.DeleteWorkspaceResponse;
 import com.sam.besameditor.dto.ImportGithubWorkspaceResponse;
+import com.sam.besameditor.dto.PatchWorkspaceArchiveRequest;
+import com.sam.besameditor.dto.PatchWorkspaceArchiveResponse;
 import com.sam.besameditor.dto.WorkspaceFileContentResponse;
 import com.sam.besameditor.dto.WorkspaceSummaryResponse;
 import com.sam.besameditor.dto.WorkspaceTreeNodeResponse;
@@ -114,6 +116,8 @@ public class WorkspaceService {
         if (cloudinaryUploadResult != null) {
             savedProject.setCloudinaryPublicId(cloudinaryUploadResult.publicId());
             savedProject.setCloudinaryUrl(cloudinaryUploadResult.secureUrl());
+            deleteDirectoryIfExistsQuietly(Path.of(storagePath));
+            savedProject.setStoragePath(null);
         }
 
         projectRepository.save(savedProject);
@@ -239,18 +243,34 @@ public class WorkspaceService {
         Project project = projectRepository.findByIdAndUser_Id(projectId, user.getId())
                 .orElseThrow(() -> new NotFoundException("Workspace not found"));
 
-        Path workspaceRoot = resolveWorkspaceRoot(project);
         Path relativeFilePath = resolveRelativeFilePath(path);
-        Path targetFile = workspaceRoot.resolve(relativeFilePath).normalize();
-        if (!targetFile.startsWith(workspaceRoot)) {
-            throw new IllegalArgumentException("Invalid file path");
-        }
-        if (!Files.exists(targetFile) || !Files.isRegularFile(targetFile)) {
-            throw new NotFoundException("File not found in workspace");
+        String normalizedPath = normalizePath(relativeFilePath.toString());
+
+        byte[] fileBytes;
+        Path workspaceRoot = resolveWorkspaceRoot(project);
+        if (workspaceRoot != null) {
+            Path targetFile = workspaceRoot.resolve(relativeFilePath).normalize();
+            if (!targetFile.startsWith(workspaceRoot)) {
+                throw new IllegalArgumentException("Invalid file path");
+            }
+            if (!Files.exists(targetFile) || !Files.isRegularFile(targetFile)) {
+                throw new NotFoundException("File not found in workspace");
+            }
+            fileBytes = readWorkspaceFile(targetFile);
+        } else {
+            if (!hasCloudinaryArchive(project)) {
+                throw new NotFoundException("Workspace source not found on cloud storage");
+            }
+            fileBytes = cloudinaryWorkspaceStorageService.readFileFromArchive(
+                    project.getCloudinaryPublicId(),
+                    project.getCloudinaryUrl(),
+                    normalizedPath,
+                    fileContentMaxBytes);
+            if (!isTextContent(fileBytes)) {
+                throw new IllegalArgumentException("Only text files are supported");
+            }
         }
 
-        byte[] fileBytes = readWorkspaceFile(targetFile);
-        String normalizedPath = normalizePath(relativeFilePath.toString());
         String content = decodeUtf8Text(fileBytes);
 
         return new WorkspaceFileContentResponse(
@@ -262,12 +282,71 @@ public class WorkspaceService {
     }
 
     @Transactional
+    public PatchWorkspaceArchiveResponse patchWorkspaceArchive(Long projectId, PatchWorkspaceArchiveRequest request, String userEmail) {
+        User user = findUserByEmail(userEmail);
+        Project project = projectRepository.findByIdAndUser_Id(projectId, user.getId())
+                .orElseThrow(() -> new NotFoundException("Workspace not found"));
+
+        if (!hasCloudinaryArchive(project)) {
+            throw new NotFoundException("Workspace source not found on cloud storage");
+        }
+
+        Path relativeFilePath = resolveRelativeFilePath(request.getPath());
+        String normalizedPath = normalizePath(relativeFilePath.toString());
+        byte[] contentBytes = request.getContent().getBytes(StandardCharsets.UTF_8);
+        if (contentBytes.length > fileContentMaxBytes) {
+            throw new WorkspacePayloadTooLargeException(
+                    "Workspace file content exceeds limit of " + fileContentMaxBytes + " bytes.");
+        }
+
+        CloudinaryWorkspaceStorageService.CloudinaryUploadResult uploadResult =
+                cloudinaryWorkspaceStorageService.patchFileInArchive(
+                        user.getId(),
+                        project.getId(),
+                        project.getCloudinaryPublicId(),
+                        project.getCloudinaryUrl(),
+                        normalizedPath,
+                        request.getContent());
+
+        String previousPublicId = project.getCloudinaryPublicId();
+        project.setCloudinaryPublicId(uploadResult.publicId());
+        project.setCloudinaryUrl(uploadResult.secureUrl());
+        projectRepository.save(project);
+
+        if (previousPublicId != null && !previousPublicId.isBlank()) {
+            cloudinaryWorkspaceStorageService.deleteWorkspaceArchive(previousPublicId);
+        }
+
+        SourceFile sourceFile = sourceFileRepository.findByProject_IdAndFilePath(projectId, normalizedPath)
+                .orElseGet(() -> {
+                    SourceFile created = new SourceFile();
+                    created.setProject(project);
+                    created.setFilePath(normalizedPath);
+                    return created;
+                });
+        sourceFile.setLanguage(detectLanguage(normalizedPath));
+        sourceFile.setStatus(SourceFileStatus.AVAILABLE);
+        sourceFileRepository.save(sourceFile);
+
+        return new PatchWorkspaceArchiveResponse(
+                projectId,
+                normalizedPath,
+                project.getCloudinaryUrl(),
+                contentBytes.length,
+                "Workspace archive updated successfully.");
+    }
+
+    @Transactional
     public DeleteWorkspaceFolderResponse deleteWorkspaceFolder(Long projectId, String path, String userEmail) {
         User user = findUserByEmail(userEmail);
         Project project = projectRepository.findByIdAndUser_Id(projectId, user.getId())
                 .orElseThrow(() -> new NotFoundException("Workspace not found"));
 
         Path workspaceRoot = resolveWorkspaceRoot(project);
+        if (workspaceRoot == null) {
+            throw new IllegalArgumentException("Delete folder is not supported in cloud-only storage mode");
+        }
+
         Path relativeFolderPath = resolveRelativeFolderPath(path);
         Path targetFolder = workspaceRoot.resolve(relativeFolderPath).normalize();
 
@@ -637,7 +716,7 @@ public class WorkspaceService {
     private Path resolveWorkspaceRoot(Project project) {
         String rawStoragePath = project.getStoragePath();
         if (rawStoragePath == null || rawStoragePath.isBlank()) {
-            throw new NotFoundException("Workspace source not found on server");
+            return null;
         }
 
         Path workspaceRoot;
@@ -647,17 +726,8 @@ public class WorkspaceService {
             throw new IllegalArgumentException("Workspace source path is invalid", ex);
         }
 
-        if ((!Files.exists(workspaceRoot) || !Files.isDirectory(workspaceRoot))
-                && cloudinaryWorkspaceStorageService.isEnabled()
-                && hasCloudinaryArchive(project)) {
-            cloudinaryWorkspaceStorageService.restoreWorkspaceArchive(
-                    workspaceRoot,
-                    project.getCloudinaryPublicId(),
-                    project.getCloudinaryUrl());
-        }
-
         if (!Files.exists(workspaceRoot) || !Files.isDirectory(workspaceRoot)) {
-            throw new NotFoundException("Workspace source not found on server");
+            return null;
         }
         return workspaceRoot;
     }
@@ -673,12 +743,6 @@ public class WorkspaceService {
             workspaceRoot = Path.of(rawStoragePath).toAbsolutePath().normalize();
         } catch (InvalidPathException ex) {
             throw new IllegalArgumentException("Workspace source path is invalid", ex);
-        }
-
-        String expectedProjectDirectoryName = "project-" + project.getId();
-        Path lastSegment = workspaceRoot.getFileName();
-        if (lastSegment == null || !expectedProjectDirectoryName.equals(lastSegment.toString())) {
-            throw new IllegalArgumentException("Workspace source path is invalid");
         }
 
         return workspaceRoot;
@@ -898,6 +962,17 @@ public class WorkspaceService {
         try {
             Files.deleteIfExists(path);
         } catch (IOException ignored) {
+            // best effort cleanup
+        }
+    }
+
+    private void deleteDirectoryIfExistsQuietly(Path folderPath) {
+        if (folderPath == null || !Files.exists(folderPath)) {
+            return;
+        }
+        try {
+            deleteDirectoryRecursively(folderPath);
+        } catch (Exception ignored) {
             // best effort cleanup
         }
     }
