@@ -7,18 +7,21 @@ public class ImportGithubWorkspaceResponse {
     private final String sourceUrl;
     private final int totalFiles;
     private final long totalSizeBytes;
+    private final String cloudinaryUrl;
 
     public ImportGithubWorkspaceResponse(
             Long projectId,
             String name,
             String sourceUrl,
             int totalFiles,
-            long totalSizeBytes) {
+            long totalSizeBytes,
+            String cloudinaryUrl) {
         this.projectId = projectId;
         this.name = name;
         this.sourceUrl = sourceUrl;
         this.totalFiles = totalFiles;
         this.totalSizeBytes = totalSizeBytes;
+        this.cloudinaryUrl = cloudinaryUrl;
     }
 
     public Long getProjectId() {
@@ -39,5 +42,9 @@ public class ImportGithubWorkspaceResponse {
 
     public long getTotalSizeBytes() {
         return totalSizeBytes;
+    }
+
+    public String getCloudinaryUrl() {
+        return cloudinaryUrl;
     }
 }

@@ -57,6 +57,7 @@ public class WorkspaceService {
     private final FlowGraphDataRepository flowGraphDataRepository;
     private final GithubRepositoryTreeClient githubRepositoryTreeClient;
     private final WorkspaceSourceStorageService workspaceSourceStorageService;
+    private final CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService;
     private final long maxSizeBytes;
     private final long fileContentMaxBytes;
     private final Set<String> blacklistedDirs;
@@ -69,6 +70,7 @@ public class WorkspaceService {
             FlowGraphDataRepository flowGraphDataRepository,
             GithubRepositoryTreeClient githubRepositoryTreeClient,
             WorkspaceSourceStorageService workspaceSourceStorageService,
+            CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService,
             @Value("${app.workspace.max-size-bytes:15728640}") long maxSizeBytes,
             @Value("${app.workspace.file-content-max-bytes:1048576}") long fileContentMaxBytes,
             @Value("${app.workspace.blacklist-dirs:.git,node_modules,target,dist,build,.idea,.vscode}") String blacklistDirs) {
@@ -79,6 +81,7 @@ public class WorkspaceService {
         this.flowGraphDataRepository = flowGraphDataRepository;
         this.githubRepositoryTreeClient = githubRepositoryTreeClient;
         this.workspaceSourceStorageService = workspaceSourceStorageService;
+        this.cloudinaryWorkspaceStorageService = cloudinaryWorkspaceStorageService;
         this.maxSizeBytes = maxSizeBytes;
         this.fileContentMaxBytes = fileContentMaxBytes;
         this.blacklistedDirs = parseBlacklist(blacklistDirs);
@@ -105,6 +108,14 @@ public class WorkspaceService {
                 savedProject.getId(),
                 repoDescriptor.cloneUrl());
         savedProject.setStoragePath(storagePath);
+
+        CloudinaryWorkspaceStorageService.CloudinaryUploadResult cloudinaryUploadResult =
+                cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(user.getId(), savedProject.getId(), Path.of(storagePath));
+        if (cloudinaryUploadResult != null) {
+            savedProject.setCloudinaryPublicId(cloudinaryUploadResult.publicId());
+            savedProject.setCloudinaryUrl(cloudinaryUploadResult.secureUrl());
+        }
+
         projectRepository.save(savedProject);
 
         persistSourceFiles(savedProject, snapshots);
@@ -114,7 +125,8 @@ public class WorkspaceService {
                 savedProject.getName(),
                 savedProject.getSourceUrl(),
                 snapshots.size(),
-                totalSize[0]);
+                totalSize[0],
+                savedProject.getCloudinaryUrl());
     }
 
     @Transactional
@@ -135,6 +147,14 @@ public class WorkspaceService {
                 savedProject.getId(),
                 localFolderDescriptor.path());
         savedProject.setStoragePath(storagePath);
+
+        CloudinaryWorkspaceStorageService.CloudinaryUploadResult cloudinaryUploadResult =
+                cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(user.getId(), savedProject.getId(), Path.of(storagePath));
+        if (cloudinaryUploadResult != null) {
+            savedProject.setCloudinaryPublicId(cloudinaryUploadResult.publicId());
+            savedProject.setCloudinaryUrl(cloudinaryUploadResult.secureUrl());
+        }
+
         projectRepository.save(savedProject);
 
         persistSourceFiles(savedProject, localImportResult.snapshots());
@@ -144,7 +164,8 @@ public class WorkspaceService {
                 savedProject.getName(),
                 savedProject.getSourceUrl(),
                 localImportResult.snapshots().size(),
-                localImportResult.totalSizeBytes());
+                localImportResult.totalSizeBytes(),
+                savedProject.getCloudinaryUrl());
     }
 
     @Transactional
@@ -165,6 +186,14 @@ public class WorkspaceService {
                 savedProject.getId(),
                 zipFile);
         savedProject.setStoragePath(storagePath);
+
+        CloudinaryWorkspaceStorageService.CloudinaryUploadResult cloudinaryUploadResult =
+                cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(user.getId(), savedProject.getId(), Path.of(storagePath));
+        if (cloudinaryUploadResult != null) {
+            savedProject.setCloudinaryPublicId(cloudinaryUploadResult.publicId());
+            savedProject.setCloudinaryUrl(cloudinaryUploadResult.secureUrl());
+        }
+
         projectRepository.save(savedProject);
 
         persistSourceFiles(savedProject, localImportResult.snapshots());
@@ -280,6 +309,7 @@ public class WorkspaceService {
             deleteDirectoryRecursively(workspaceRoot);
         }
 
+        cloudinaryWorkspaceStorageService.deleteWorkspaceArchive(project.getCloudinaryPublicId());
         projectRepository.delete(project);
 
         return new DeleteWorkspaceResponse(projectId, Math.toIntExact(deletedFileCount), "Workspace deleted successfully.");

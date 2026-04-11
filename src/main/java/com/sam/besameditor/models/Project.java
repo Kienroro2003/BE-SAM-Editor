@@ -37,6 +37,12 @@ public class Project {
     @Column(length = 1024)
     private String storagePath;
 
+    @Column(length = 512)
+    private String cloudinaryPublicId;
+
+    @Column(length = 2048)
+    private String cloudinaryUrl;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
