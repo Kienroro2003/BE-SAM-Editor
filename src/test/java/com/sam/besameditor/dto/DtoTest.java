@@ -159,13 +159,20 @@ class DtoTest {
                 "repo",
                 com.sam.besameditor.models.ProjectSourceType.LOCAL_FOLDER,
                 "file:///tmp/repo",
+                "https://res.cloudinary.com/demo/raw/upload/repo.zip",
                 createdAt,
                 updatedAt
         );
         WorkspaceFileContentResponse content =
                 new WorkspaceFileContentResponse(11L, "src/App.java", "JAVA", "class App {}", 12L);
         ImportGithubWorkspaceResponse importResponse =
-                new ImportGithubWorkspaceResponse(11L, "repo", "https://github.com/openai/repo", 2, 32L);
+                new ImportGithubWorkspaceResponse(
+                        11L,
+                        "repo",
+                        "https://github.com/openai/repo",
+                        2,
+                        32L,
+                        "https://res.cloudinary.com/demo/raw/upload/repo.zip");
         DeleteWorkspaceResponse deleteWorkspace = new DeleteWorkspaceResponse(11L, 2, "deleted");
         DeleteWorkspaceFolderResponse deleteFolder =
                 new DeleteWorkspaceFolderResponse(11L, "src", 1, "deleted");
@@ -184,6 +191,7 @@ class DtoTest {
         assertEquals("repo", summary.getName());
         assertEquals(com.sam.besameditor.models.ProjectSourceType.LOCAL_FOLDER, summary.getSourceType());
         assertEquals("file:///tmp/repo", summary.getSourceUrl());
+        assertEquals("https://res.cloudinary.com/demo/raw/upload/repo.zip", summary.getCloudinaryUrl());
         assertEquals(createdAt, summary.getCreatedAt());
         assertEquals(updatedAt, summary.getUpdatedAt());
 
@@ -198,6 +206,7 @@ class DtoTest {
         assertEquals("https://github.com/openai/repo", importResponse.getSourceUrl());
         assertEquals(2, importResponse.getTotalFiles());
         assertEquals(32L, importResponse.getTotalSizeBytes());
+        assertEquals("https://res.cloudinary.com/demo/raw/upload/repo.zip", importResponse.getCloudinaryUrl());
 
         assertEquals(11L, deleteWorkspace.getProjectId());
         assertEquals(2, deleteWorkspace.getDeletedFiles());

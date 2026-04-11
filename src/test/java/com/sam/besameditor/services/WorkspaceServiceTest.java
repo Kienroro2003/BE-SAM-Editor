@@ -56,6 +56,8 @@ class WorkspaceServiceTest {
     private GithubRepositoryTreeClient githubRepositoryTreeClient;
     @Mock
     private WorkspaceSourceStorageService workspaceSourceStorageService;
+    @Mock
+    private CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService;
 
     @TempDir
     Path tempDir;
@@ -72,6 +74,7 @@ class WorkspaceServiceTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 15_728_640L,
                 1_048_576L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
@@ -101,6 +104,13 @@ class WorkspaceServiceTest {
         });
         when(workspaceSourceStorageService.cloneGithubRepository(1L, 100L, "https://github.com/owner/repo.git"))
                 .thenReturn("/tmp/workspace-storage/user-1/project-100");
+        when(cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(
+                1L,
+                100L,
+                Path.of("/tmp/workspace-storage/user-1/project-100")))
+                .thenReturn(new CloudinaryWorkspaceStorageService.CloudinaryUploadResult(
+                        "workspaces/user-1/project-100",
+                        "https://res.cloudinary.com/demo/raw/upload/workspaces/user-1/project-100.zip"));
 
         ImportGithubWorkspaceResponse response =
                 workspaceService.importFromGithub("https://github.com/owner/repo", "user@test.com");
@@ -109,8 +119,13 @@ class WorkspaceServiceTest {
         assertEquals("repo", response.getName());
         assertEquals(2, response.getTotalFiles());
         assertEquals(30L, response.getTotalSizeBytes());
+        assertEquals(
+                "https://res.cloudinary.com/demo/raw/upload/workspaces/user-1/project-100.zip",
+                response.getCloudinaryUrl());
         verify(workspaceSourceStorageService)
                 .cloneGithubRepository(1L, 100L, "https://github.com/owner/repo.git");
+        verify(cloudinaryWorkspaceStorageService)
+                .uploadWorkspaceArchive(1L, 100L, Path.of("/tmp/workspace-storage/user-1/project-100"));
 
         ArgumentCaptor<List<SourceFile>> filesCaptor = ArgumentCaptor.forClass(List.class);
         verify(sourceFileRepository).saveAll(filesCaptor.capture());
@@ -191,6 +206,7 @@ class WorkspaceServiceTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 10L,
                 1_048_576L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
@@ -240,6 +256,13 @@ class WorkspaceServiceTest {
         });
         when(workspaceSourceStorageService.extractZipArchive(1L, 100L, zipFile))
                 .thenReturn("/tmp/workspace-storage/user-1/project-100");
+        when(cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(
+                1L,
+                100L,
+                Path.of("/tmp/workspace-storage/user-1/project-100")))
+                .thenReturn(new CloudinaryWorkspaceStorageService.CloudinaryUploadResult(
+                        "workspaces/user-1/project-100",
+                        "https://res.cloudinary.com/demo/raw/upload/workspaces/user-1/project-100.zip"));
 
         ImportGithubWorkspaceResponse response =
                 workspaceService.importFromZip(zipFile, "local-project", "user@test.com");
@@ -248,8 +271,13 @@ class WorkspaceServiceTest {
         assertEquals("local-project", response.getName());
         assertEquals(2, response.getTotalFiles());
         assertTrue(response.getTotalSizeBytes() > 0L);
+        assertEquals(
+                "https://res.cloudinary.com/demo/raw/upload/workspaces/user-1/project-100.zip",
+                response.getCloudinaryUrl());
         verify(workspaceSourceStorageService)
                 .extractZipArchive(1L, 100L, zipFile);
+        verify(cloudinaryWorkspaceStorageService)
+                .uploadWorkspaceArchive(1L, 100L, Path.of("/tmp/workspace-storage/user-1/project-100"));
 
         ArgumentCaptor<Project> projectCaptor = ArgumentCaptor.forClass(Project.class);
         verify(projectRepository, atLeastOnce()).save(projectCaptor.capture());
@@ -324,6 +352,7 @@ class WorkspaceServiceTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 10L,
                 1_048_576L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
@@ -482,6 +511,7 @@ class WorkspaceServiceTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 15_728_640L,
                 10L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"

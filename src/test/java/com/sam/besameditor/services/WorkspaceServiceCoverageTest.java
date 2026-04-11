@@ -59,6 +59,8 @@ class WorkspaceServiceCoverageTest {
     private GithubRepositoryTreeClient githubRepositoryTreeClient;
     @Mock
     private WorkspaceSourceStorageService workspaceSourceStorageService;
+    @Mock
+    private CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService;
 
     @TempDir
     Path tempDir;
@@ -75,6 +77,7 @@ class WorkspaceServiceCoverageTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 15_728_640L,
                 1_048_576L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
@@ -99,6 +102,10 @@ class WorkspaceServiceCoverageTest {
         });
         when(workspaceSourceStorageService.copyLocalFolder(1L, 100L, sourceFolder))
                 .thenReturn(tempDir.resolve("copied").toString());
+        when(cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(1L, 100L, tempDir.resolve("copied")))
+                .thenReturn(new CloudinaryWorkspaceStorageService.CloudinaryUploadResult(
+                        "workspaces/user-1/project-100",
+                        "https://res.cloudinary.com/demo/raw/upload/workspaces/user-1/project-100.zip"));
 
         ImportGithubWorkspaceResponse response =
                 workspaceService.importFromLocalFolder(sourceFolder.toString(), "   ", "user@test.com");
@@ -107,6 +114,10 @@ class WorkspaceServiceCoverageTest {
         assertEquals("local-workspace", response.getName());
         assertEquals(2, response.getTotalFiles());
         assertTrue(response.getTotalSizeBytes() > 0);
+        assertEquals(
+                "https://res.cloudinary.com/demo/raw/upload/workspaces/user-1/project-100.zip",
+                response.getCloudinaryUrl());
+        verify(cloudinaryWorkspaceStorageService).uploadWorkspaceArchive(1L, 100L, tempDir.resolve("copied"));
 
         ArgumentCaptor<Project> projectCaptor = ArgumentCaptor.forClass(Project.class);
         verify(projectRepository, atLeastOnce()).save(projectCaptor.capture());
@@ -148,6 +159,7 @@ class WorkspaceServiceCoverageTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 4L,
                 1_048_576L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
@@ -178,12 +190,19 @@ class WorkspaceServiceCoverageTest {
         });
         when(workspaceSourceStorageService.extractZipArchive(1L, 100L, zipFile))
                 .thenReturn(tempDir.resolve("unzipped").toString());
+        when(cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(1L, 100L, tempDir.resolve("unzipped")))
+                .thenReturn(new CloudinaryWorkspaceStorageService.CloudinaryUploadResult(
+                        "workspaces/user-1/project-100",
+                        "https://res.cloudinary.com/demo/raw/upload/workspaces/user-1/project-100.zip"));
 
         ImportGithubWorkspaceResponse response =
                 workspaceService.importFromZip(zipFile, "   ", "user@test.com");
 
         assertEquals("sample-workspace", response.getName());
         assertEquals(1, response.getTotalFiles());
+        assertEquals(
+                "https://res.cloudinary.com/demo/raw/upload/workspaces/user-1/project-100.zip",
+                response.getCloudinaryUrl());
     }
 
     @Test
@@ -246,6 +265,7 @@ class WorkspaceServiceCoverageTest {
         first.setName("repo-a");
         first.setSourceType(ProjectSourceType.GITHUB);
         first.setSourceUrl("https://github.com/openai/a");
+        first.setCloudinaryUrl("https://res.cloudinary.com/demo/raw/upload/workspaces/repo-a.zip");
         first.setCreatedAt(LocalDateTime.of(2026, 4, 10, 9, 0));
         first.setUpdatedAt(LocalDateTime.of(2026, 4, 10, 10, 0));
 
@@ -267,6 +287,9 @@ class WorkspaceServiceCoverageTest {
         assertEquals(11L, response.get(0).getProjectId());
         assertEquals("repo-a", response.get(0).getName());
         assertEquals(ProjectSourceType.GITHUB, response.get(0).getSourceType());
+        assertEquals(
+                "https://res.cloudinary.com/demo/raw/upload/workspaces/repo-a.zip",
+                response.get(0).getCloudinaryUrl());
         assertEquals("file:///tmp/repo-b", response.get(1).getSourceUrl());
     }
 

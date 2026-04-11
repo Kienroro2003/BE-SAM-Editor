@@ -42,7 +42,13 @@ class WorkspaceControllerTest {
         when(authentication.getName()).thenReturn("user@test.com");
 
         ImportGithubWorkspaceResponse serviceResponse =
-                new ImportGithubWorkspaceResponse(1L, "repo", "https://github.com/owner/repo", 2, 30L);
+                new ImportGithubWorkspaceResponse(
+                        1L,
+                        "repo",
+                        "https://github.com/owner/repo",
+                        2,
+                        30L,
+                        "https://res.cloudinary.com/demo/raw/upload/repo.zip");
         when(workspaceService.importFromGithub("https://github.com/owner/repo", "user@test.com"))
                 .thenReturn(serviceResponse);
 
@@ -53,6 +59,7 @@ class WorkspaceControllerTest {
         assertEquals(1L, response.getProjectId());
         assertEquals("repo", response.getName());
         assertEquals(2, response.getTotalFiles());
+        assertEquals("https://res.cloudinary.com/demo/raw/upload/repo.zip", response.getCloudinaryUrl());
     }
 
     @Test
@@ -63,7 +70,13 @@ class WorkspaceControllerTest {
                 new MockMultipartFile("file", "sample-workspace.zip", "application/zip", new byte[]{1, 2, 3});
 
         ImportGithubWorkspaceResponse serviceResponse =
-                new ImportGithubWorkspaceResponse(5L, "sample-workspace", "upload://sample-workspace.zip", 3, 120L);
+                new ImportGithubWorkspaceResponse(
+                        5L,
+                        "sample-workspace",
+                        "upload://sample-workspace.zip",
+                        3,
+                        120L,
+                        "https://res.cloudinary.com/demo/raw/upload/sample-workspace.zip");
         when(workspaceService.importFromZip(any(), any(), any()))
                 .thenReturn(serviceResponse);
 
@@ -74,6 +87,7 @@ class WorkspaceControllerTest {
         assertEquals(5L, response.getProjectId());
         assertEquals("sample-workspace", response.getName());
         assertEquals(3, response.getTotalFiles());
+        assertEquals("https://res.cloudinary.com/demo/raw/upload/sample-workspace.zip", response.getCloudinaryUrl());
     }
 
     @Test
@@ -86,6 +100,7 @@ class WorkspaceControllerTest {
                 "repo",
                 ProjectSourceType.GITHUB,
                 "https://github.com/owner/repo",
+                "https://res.cloudinary.com/demo/raw/upload/repo.zip",
                 LocalDateTime.now(),
                 LocalDateTime.now());
 
@@ -97,6 +112,7 @@ class WorkspaceControllerTest {
 
         assertEquals(1, response.size());
         assertEquals("repo", response.get(0).getName());
+        assertEquals("https://res.cloudinary.com/demo/raw/upload/repo.zip", response.get(0).getCloudinaryUrl());
     }
 
     @Test
