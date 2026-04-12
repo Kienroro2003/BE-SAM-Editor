@@ -54,6 +54,8 @@ class CodeAnalysisServiceTest {
     private AnalyzedFunctionRepository analyzedFunctionRepository;
     @Mock
     private FlowGraphDataRepository flowGraphDataRepository;
+    @Mock
+    private CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService;
 
     @TempDir
     Path tempDir;
@@ -71,6 +73,7 @@ class CodeAnalysisServiceTest {
                 analyzedFunctionRepository,
                 flowGraphDataRepository,
                 new JavaSourceAnalyzer(),
+                cloudinaryWorkspaceStorageService,
                 objectMapper,
                 1_048_576L);
     }

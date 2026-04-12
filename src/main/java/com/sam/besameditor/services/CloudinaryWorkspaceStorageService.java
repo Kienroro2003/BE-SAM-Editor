@@ -5,6 +5,7 @@ import com.cloudinary.utils.ObjectUtils;
 import com.sam.besameditor.exceptions.NotFoundException;
 import com.sam.besameditor.exceptions.WorkspacePayloadTooLargeException;
 import com.sam.besameditor.exceptions.WorkspaceStorageException;
+import com.sam.besameditor.models.CloudinaryDeliveryType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -17,7 +18,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
@@ -30,15 +33,18 @@ public class CloudinaryWorkspaceStorageService {
     private final boolean enabled;
     private final String targetFolder;
     private final Cloudinary cloudinary;
+    private final long privateDownloadUrlTtlSeconds;
 
     public CloudinaryWorkspaceStorageService(
             @Value("${app.cloudinary.enabled:false}") boolean enabled,
             @Value("${app.cloudinary.cloud-name:}") String cloudName,
             @Value("${app.cloudinary.api-key:}") String apiKey,
             @Value("${app.cloudinary.api-secret:}") String apiSecret,
-            @Value("${app.cloudinary.workspace-folder:sam-workspaces}") String targetFolder) {
+            @Value("${app.cloudinary.workspace-folder:sam-workspaces}") String targetFolder,
+            @Value("${app.cloudinary.private-download-url-ttl-seconds:300}") long privateDownloadUrlTtlSeconds) {
         this.enabled = enabled;
         this.targetFolder = targetFolder;
+        this.privateDownloadUrlTtlSeconds = privateDownloadUrlTtlSeconds;
 
         if (enabled) {
             if (cloudName.isBlank() || apiKey.isBlank() || apiSecret.isBlank()) {
@@ -62,20 +68,7 @@ public class CloudinaryWorkspaceStorageService {
         try {
             tempZip = Files.createTempFile("workspace-cloudinary-", ".zip");
             zipDirectory(workspaceRoot, tempZip);
-
-            String publicId = "user-" + userId + "/project-" + projectId + "-" + UUID.randomUUID();
-            @SuppressWarnings("unchecked")
-            Map<String, Object> response = cloudinary.uploader().upload(
-                    tempZip.toFile(),
-                    ObjectUtils.asMap(
-                            "resource_type", "raw",
-                            "folder", targetFolder,
-                            "public_id", publicId,
-                            "overwrite", true));
-
-            String uploadedPublicId = (String) response.get("public_id");
-            String secureUrl = (String) response.get("secure_url");
-            return new CloudinaryUploadResult(uploadedPublicId, secureUrl);
+            return uploadArchiveFile(tempZip, userId, projectId);
         } catch (Exception ex) {
             throw new WorkspaceStorageException("Failed to upload workspace archive to Cloudinary", ex);
         } finally {
@@ -89,14 +82,16 @@ public class CloudinaryWorkspaceStorageService {
         }
     }
 
-    public void deleteWorkspaceArchive(String publicId) {
+    public void deleteWorkspaceArchive(String publicId, CloudinaryDeliveryType deliveryType) {
         if (!enabled || publicId == null || publicId.isBlank()) {
             return;
         }
         try {
             cloudinary.uploader().destroy(
                     publicId,
-                    ObjectUtils.asMap("resource_type", "raw"));
+                    ObjectUtils.asMap(
+                            "resource_type", "raw",
+                            "type", CloudinaryDeliveryType.resolve(deliveryType).apiValue()));
         } catch (Exception ex) {
             throw new WorkspaceStorageException("Failed to delete workspace archive from Cloudinary", ex);
         }
@@ -111,13 +106,14 @@ public class CloudinaryWorkspaceStorageService {
             Long projectId,
             String currentPublicId,
             String currentCloudinaryUrl,
+            CloudinaryDeliveryType deliveryType,
             String targetPath,
             String content) {
         if (!enabled) {
             throw new WorkspaceStorageException("Cloudinary storage is disabled", new IllegalStateException("disabled"));
         }
 
-        String downloadUrl = resolveDownloadUrl(currentPublicId, currentCloudinaryUrl);
+        String downloadUrl = resolveDownloadUrl(currentPublicId, currentCloudinaryUrl, deliveryType);
         if (downloadUrl == null || downloadUrl.isBlank()) {
             throw new NotFoundException("Workspace source not found on cloud storage");
         }
@@ -131,20 +127,7 @@ public class CloudinaryWorkspaceStorageService {
 
             String normalizedTargetPath = normalizeArchiveEntryName(targetPath);
             rewriteZipWithPatchedFile(sourceZip, patchedZip, normalizedTargetPath, content);
-
-            String nextPublicId = "user-" + userId + "/project-" + projectId + "-" + UUID.randomUUID();
-            @SuppressWarnings("unchecked")
-            Map<String, Object> response = cloudinary.uploader().upload(
-                    patchedZip.toFile(),
-                    ObjectUtils.asMap(
-                            "resource_type", "raw",
-                            "folder", targetFolder,
-                            "public_id", nextPublicId,
-                            "overwrite", true));
-
-            String uploadedPublicId = (String) response.get("public_id");
-            String secureUrl = (String) response.get("secure_url");
-            return new CloudinaryUploadResult(uploadedPublicId, secureUrl);
+            return uploadArchiveFile(patchedZip, userId, projectId);
         } catch (IOException ex) {
             throw new WorkspaceStorageException("Failed to patch workspace archive", ex);
         } catch (Exception ex) {
@@ -172,12 +155,13 @@ public class CloudinaryWorkspaceStorageService {
             Long projectId,
             String currentPublicId,
             String currentCloudinaryUrl,
+            CloudinaryDeliveryType deliveryType,
             String targetFolderPath) {
         if (!enabled) {
             throw new WorkspaceStorageException("Cloudinary storage is disabled", new IllegalStateException("disabled"));
         }
 
-        String downloadUrl = resolveDownloadUrl(currentPublicId, currentCloudinaryUrl);
+        String downloadUrl = resolveDownloadUrl(currentPublicId, currentCloudinaryUrl, deliveryType);
         if (downloadUrl == null || downloadUrl.isBlank()) {
             throw new NotFoundException("Workspace source not found on cloud storage");
         }
@@ -194,20 +178,7 @@ public class CloudinaryWorkspaceStorageService {
             if (deletedEntries == 0) {
                 throw new NotFoundException("Folder not found in workspace");
             }
-
-            String nextPublicId = "user-" + userId + "/project-" + projectId + "-" + UUID.randomUUID();
-            @SuppressWarnings("unchecked")
-            Map<String, Object> response = cloudinary.uploader().upload(
-                    patchedZip.toFile(),
-                    ObjectUtils.asMap(
-                            "resource_type", "raw",
-                            "folder", targetFolder,
-                            "public_id", nextPublicId,
-                            "overwrite", true));
-
-            String uploadedPublicId = (String) response.get("public_id");
-            String secureUrl = (String) response.get("secure_url");
-            return new CloudinaryUploadResult(uploadedPublicId, secureUrl);
+            return uploadArchiveFile(patchedZip, userId, projectId);
         } catch (IOException ex) {
             throw new WorkspaceStorageException("Failed to delete folder from workspace archive", ex);
         } catch (Exception ex) {
@@ -230,12 +201,17 @@ public class CloudinaryWorkspaceStorageService {
         }
     }
 
-    public byte[] readFileFromArchive(String publicId, String cloudinaryUrl, String filePath, long maxSizeBytes) {
+    public byte[] readFileFromArchive(
+            String publicId,
+            String cloudinaryUrl,
+            CloudinaryDeliveryType deliveryType,
+            String filePath,
+            long maxSizeBytes) {
         if (!enabled) {
             throw new WorkspaceStorageException("Cloudinary storage is disabled", new IllegalStateException("disabled"));
         }
 
-        String downloadUrl = resolveDownloadUrl(publicId, cloudinaryUrl);
+        String downloadUrl = resolveDownloadUrl(publicId, cloudinaryUrl, deliveryType);
         if (downloadUrl == null || downloadUrl.isBlank()) {
             throw new NotFoundException("Workspace source not found on cloud storage");
         }
@@ -258,12 +234,16 @@ public class CloudinaryWorkspaceStorageService {
         }
     }
 
-    public void restoreWorkspaceArchive(Path targetDir, String publicId, String cloudinaryUrl) {
+    public void restoreWorkspaceArchive(
+            Path targetDir,
+            String publicId,
+            String cloudinaryUrl,
+            CloudinaryDeliveryType deliveryType) {
         if (!enabled) {
             throw new WorkspaceStorageException("Cloudinary restore is disabled", new IllegalStateException("disabled"));
         }
 
-        String signedOrPublicUrl = resolveDownloadUrl(publicId, cloudinaryUrl);
+        String signedOrPublicUrl = resolveDownloadUrl(publicId, cloudinaryUrl, deliveryType);
         if (signedOrPublicUrl == null || signedOrPublicUrl.isBlank()) {
             throw new WorkspaceStorageException("Cloudinary archive reference is missing", new IllegalArgumentException("missing cloudinary reference"));
         }
@@ -406,13 +386,44 @@ public class CloudinaryWorkspaceStorageService {
         return deletedEntries;
     }
 
-    private String resolveDownloadUrl(String publicId, String cloudinaryUrl) {
+    private CloudinaryUploadResult uploadArchiveFile(Path archiveFile, Long userId, Long projectId) throws Exception {
+        String publicId = "user-" + userId + "/project-" + projectId + "-" + UUID.randomUUID();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> response = cloudinary.uploader().upload(
+                archiveFile.toFile(),
+                ObjectUtils.asMap(
+                        "resource_type", "raw",
+                        "type", CloudinaryDeliveryType.PRIVATE.apiValue(),
+                        "folder", targetFolder,
+                        "public_id", publicId,
+                        "overwrite", true));
+
+        String uploadedPublicId = (String) response.get("public_id");
+        String secureUrl = (String) response.get("secure_url");
+        return new CloudinaryUploadResult(uploadedPublicId, secureUrl, CloudinaryDeliveryType.PRIVATE);
+    }
+
+    private String resolveDownloadUrl(String publicId, String cloudinaryUrl, CloudinaryDeliveryType deliveryType) {
+        CloudinaryDeliveryType resolvedType = CloudinaryDeliveryType.resolve(deliveryType);
         if (publicId != null && !publicId.isBlank()) {
-            return cloudinary.url()
-                    .resourceType("raw")
-                    .secure(true)
-                    .generate(publicId);
+            try {
+                long expiresAt = Instant.now().plusSeconds(privateDownloadUrlTtlSeconds).getEpochSecond();
+                Map<String, Object> options = new HashMap<>();
+                options.put("resource_type", "raw");
+                options.put("type", resolvedType.apiValue());
+                options.put("expires_at", expiresAt);
+                return cloudinary.privateDownload(publicId, "zip", options);
+            } catch (Exception ex) {
+                throw new WorkspaceStorageException("Failed to create signed download URL for workspace archive", ex);
+            }
         }
+
+        if (resolvedType == CloudinaryDeliveryType.PRIVATE) {
+            throw new WorkspaceStorageException(
+                    "Cloudinary private archive reference is missing publicId",
+                    new IllegalArgumentException("missing cloudinary publicId"));
+        }
+
         return cloudinaryUrl;
     }
 
@@ -522,6 +533,9 @@ public class CloudinaryWorkspaceStorageService {
         }
     }
 
-    public record CloudinaryUploadResult(String publicId, String secureUrl) {
+    public record CloudinaryUploadResult(String publicId, String secureUrl, CloudinaryDeliveryType deliveryType) {
+        public CloudinaryUploadResult(String publicId, String secureUrl) {
+            this(publicId, secureUrl, CloudinaryDeliveryType.PRIVATE);
+        }
     }
 }

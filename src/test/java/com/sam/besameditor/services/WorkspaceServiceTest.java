@@ -7,6 +7,7 @@ import com.sam.besameditor.dto.WorkspaceFileContentResponse;
 import com.sam.besameditor.dto.WorkspaceTreeResponse;
 import com.sam.besameditor.exceptions.NotFoundException;
 import com.sam.besameditor.exceptions.WorkspacePayloadTooLargeException;
+import com.sam.besameditor.models.CloudinaryDeliveryType;
 import com.sam.besameditor.models.Project;
 import com.sam.besameditor.models.ProjectSourceType;
 import com.sam.besameditor.models.SourceFile;
@@ -153,6 +154,13 @@ class WorkspaceServiceTest {
         });
         when(workspaceSourceStorageService.cloneGithubRepository(1L, 100L, "https://github.com/owner/repo.git"))
                 .thenReturn("/tmp/workspace-storage/user-1/project-100");
+        when(cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(
+                1L,
+                100L,
+                Path.of("/tmp/workspace-storage/user-1/project-100")))
+                .thenReturn(new CloudinaryWorkspaceStorageService.CloudinaryUploadResult(
+                        "workspaces/user-1/project-100",
+                        "https://res.cloudinary.com/demo/raw/upload/workspaces/user-1/project-100.zip"));
 
         ImportGithubWorkspaceResponse response =
                 workspaceService.importFromGithub("https://github.com/owner/repo", "user@test.com");
@@ -183,6 +191,13 @@ class WorkspaceServiceTest {
         });
         when(workspaceSourceStorageService.cloneGithubRepository(1L, 100L, "https://github.com/owner/repo.git"))
                 .thenReturn("/tmp/workspace-storage/user-1/project-100");
+        when(cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(
+                1L,
+                100L,
+                Path.of("/tmp/workspace-storage/user-1/project-100")))
+                .thenReturn(new CloudinaryWorkspaceStorageService.CloudinaryUploadResult(
+                        "workspaces/user-1/project-100",
+                        "https://res.cloudinary.com/demo/raw/upload/workspaces/user-1/project-100.zip"));
 
         ImportGithubWorkspaceResponse response =
                 workspaceService.importFromGithub("https://github.com/owner/repo", "user@test.com");
@@ -310,6 +325,13 @@ class WorkspaceServiceTest {
         });
         when(workspaceSourceStorageService.extractZipArchive(1L, 100L, zipFile))
                 .thenReturn("/tmp/workspace-storage/user-1/project-100");
+        when(cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(
+                1L,
+                100L,
+                Path.of("/tmp/workspace-storage/user-1/project-100")))
+                .thenReturn(new CloudinaryWorkspaceStorageService.CloudinaryUploadResult(
+                        "workspaces/user-1/project-100",
+                        "https://res.cloudinary.com/demo/raw/upload/workspaces/user-1/project-100.zip"));
 
         ImportGithubWorkspaceResponse response =
                 workspaceService.importFromZip(zipFile, "local-project", "user@test.com");
@@ -562,7 +584,7 @@ class WorkspaceServiceTest {
     }
 
     @Test
-    void deleteWorkspaceFolder_ShouldDeleteFolderFromStorageAndMetadata() throws IOException {
+    void deleteWorkspaceFolder_ShouldMigrateLegacyWorkspaceToCloudinaryAndDeleteFolderMetadata() throws IOException {
         User user = new User();
         user.setId(7L);
         user.setEmail("user@test.com");
@@ -570,14 +592,11 @@ class WorkspaceServiceTest {
         Path workspaceRoot = Files.createDirectories(tempDir.resolve("project-22"));
         Path removedFile = workspaceRoot.resolve("src/main/App.java");
         Path removedNestedFile = workspaceRoot.resolve("src/main/utils/Helper.java");
-        Path keptFile = workspaceRoot.resolve("src/Keep.java");
 
         Files.createDirectories(removedFile.getParent());
         Files.createDirectories(removedNestedFile.getParent());
-        Files.createDirectories(keptFile.getParent());
         Files.writeString(removedFile, "class App {}", StandardCharsets.UTF_8);
         Files.writeString(removedNestedFile, "class Helper {}", StandardCharsets.UTF_8);
-        Files.writeString(keptFile, "class Keep {}", StandardCharsets.UTF_8);
 
         Project project = new Project();
         project.setId(22L);
@@ -587,6 +606,20 @@ class WorkspaceServiceTest {
 
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
         when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+        when(cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(7L, 22L, workspaceRoot))
+                .thenReturn(new CloudinaryWorkspaceStorageService.CloudinaryUploadResult(
+                        "workspace-archive-v1",
+                        "https://res.cloudinary.com/demo/raw/upload/workspace-archive-v1.zip"));
+        when(cloudinaryWorkspaceStorageService.deleteFolderInArchive(
+                7L,
+                22L,
+                "workspace-archive-v1",
+                "https://res.cloudinary.com/demo/raw/upload/workspace-archive-v1.zip",
+                CloudinaryDeliveryType.PRIVATE,
+                "src/main"))
+                .thenReturn(new CloudinaryWorkspaceStorageService.CloudinaryUploadResult(
+                        "workspace-archive-v2",
+                        "https://res.cloudinary.com/demo/raw/upload/workspace-archive-v2.zip"));
         when(sourceFileRepository.deleteByProject_IdAndFilePath(22L, "src/main")).thenReturn(0L);
         when(sourceFileRepository.deleteByProject_IdAndFilePathStartingWith(22L, "src/main/")).thenReturn(2L);
 
@@ -598,9 +631,18 @@ class WorkspaceServiceTest {
         assertEquals(2, response.getDeletedFiles());
         assertEquals("Folder deleted successfully.", response.getMessage());
 
-        assertFalse(Files.exists(workspaceRoot.resolve("src/main")));
-        assertTrue(Files.exists(keptFile));
+        assertFalse(Files.exists(workspaceRoot));
 
+        verify(cloudinaryWorkspaceStorageService).uploadWorkspaceArchive(7L, 22L, workspaceRoot);
+        verify(cloudinaryWorkspaceStorageService).deleteFolderInArchive(
+                7L,
+                22L,
+                "workspace-archive-v1",
+                "https://res.cloudinary.com/demo/raw/upload/workspace-archive-v1.zip",
+                CloudinaryDeliveryType.PRIVATE,
+                "src/main");
+        verify(cloudinaryWorkspaceStorageService)
+                .deleteWorkspaceArchive("workspace-archive-v1", CloudinaryDeliveryType.PRIVATE);
         verify(sourceFileRepository).deleteByProject_IdAndFilePath(22L, "src/main");
         verify(sourceFileRepository).deleteByProject_IdAndFilePathStartingWith(22L, "src/main/");
     }
@@ -611,15 +653,24 @@ class WorkspaceServiceTest {
         user.setId(7L);
         user.setEmail("user@test.com");
 
-        Path workspaceRoot = Files.createDirectories(tempDir.resolve("project-22"));
         Project project = new Project();
         project.setId(22L);
         project.setName("repo");
         project.setUser(user);
-        project.setStoragePath(workspaceRoot.toString());
+        project.setCloudinaryPublicId("workspace-archive-v1");
+        project.setCloudinaryUrl("https://res.cloudinary.com/demo/raw/upload/workspace-archive-v1.zip");
+        project.setCloudinaryDeliveryType(CloudinaryDeliveryType.PRIVATE);
 
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
         when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+        when(cloudinaryWorkspaceStorageService.deleteFolderInArchive(
+                7L,
+                22L,
+                "workspace-archive-v1",
+                "https://res.cloudinary.com/demo/raw/upload/workspace-archive-v1.zip",
+                CloudinaryDeliveryType.PRIVATE,
+                "src/missing"))
+                .thenThrow(new NotFoundException("Folder not found in workspace"));
 
         assertThrows(NotFoundException.class,
                 () -> workspaceService.deleteWorkspaceFolder(22L, "src/missing", "user@test.com"));
@@ -712,7 +763,7 @@ class WorkspaceServiceTest {
     }
 
     @Test
-    void deleteWorkspace_ShouldThrow_WhenStoragePathInvalid() {
+    void deleteWorkspace_ShouldDeleteProjectEvenWhenLocalWorkspacePathDoesNotExist() {
         User user = new User();
         user.setId(7L);
         user.setEmail("user@test.com");
@@ -725,13 +776,16 @@ class WorkspaceServiceTest {
 
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
         when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+        when(sourceFileRepository.countByProject_Id(22L)).thenReturn(0L);
+        when(sourceFileRepository.deleteByProject_Id(22L)).thenReturn(0L);
 
-        assertThrows(IllegalArgumentException.class,
-                () -> workspaceService.deleteWorkspace(22L, "user@test.com"));
+        DeleteWorkspaceResponse response = workspaceService.deleteWorkspace(22L, "user@test.com");
 
-        verify(sourceFileRepository, never()).countByProject_Id(anyLong());
-        verify(sourceFileRepository, never()).deleteByProject_Id(anyLong());
-        verify(projectRepository, never()).delete(any(Project.class));
+        assertEquals(22L, response.getProjectId());
+        assertEquals(0, response.getDeletedFiles());
+        verify(sourceFileRepository).countByProject_Id(22L);
+        verify(sourceFileRepository).deleteByProject_Id(22L);
+        verify(projectRepository).delete(project);
     }
 
     private MockMultipartFile createZipFile(String filename, List<ZipEntryData> entries) throws IOException {

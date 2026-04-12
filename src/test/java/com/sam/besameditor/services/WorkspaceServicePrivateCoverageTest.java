@@ -185,8 +185,7 @@ class WorkspaceServicePrivateCoverageTest {
     void privateHelpers_ShouldCoverWorkspaceRootAndRelativePathValidation() throws IOException {
         Project missingStorage = new Project();
         missingStorage.setId(10L);
-        assertThrows(NotFoundException.class,
-                () -> invoke(workspaceService, "resolveWorkspaceRoot", new Class[]{Project.class}, missingStorage));
+        assertNull(invoke(workspaceService, "resolveWorkspaceRoot", new Class[]{Project.class}, missingStorage));
 
         Project invalidStorage = new Project();
         invalidStorage.setId(11L);
@@ -197,8 +196,7 @@ class WorkspaceServicePrivateCoverageTest {
         Project missingDirectory = new Project();
         missingDirectory.setId(12L);
         missingDirectory.setStoragePath(tempDir.resolve("missing").toString());
-        assertThrows(NotFoundException.class,
-                () -> invoke(workspaceService, "resolveWorkspaceRoot", new Class[]{Project.class}, missingDirectory));
+        assertNull(invoke(workspaceService, "resolveWorkspaceRoot", new Class[]{Project.class}, missingDirectory));
 
         Path workspaceRoot = Files.createDirectories(tempDir.resolve("user-1").resolve("project-22"));
         Project validProject = new Project();
@@ -213,9 +211,15 @@ class WorkspaceServicePrivateCoverageTest {
 
         Project invalidDeleteProject = new Project();
         invalidDeleteProject.setId(22L);
-        invalidDeleteProject.setStoragePath(tempDir.resolve("wrong-name").toString());
+        invalidDeleteProject.setStoragePath("\0");
         assertThrows(IllegalArgumentException.class,
                 () -> invoke(workspaceService, "resolveWorkspaceRootForDelete", new Class[]{Project.class}, invalidDeleteProject));
+
+        Project missingDeleteProject = new Project();
+        missingDeleteProject.setId(22L);
+        missingDeleteProject.setStoragePath(tempDir.resolve("wrong-name").toString());
+        assertEquals(tempDir.resolve("wrong-name").toAbsolutePath().normalize(),
+                invoke(workspaceService, "resolveWorkspaceRootForDelete", new Class[]{Project.class}, missingDeleteProject));
 
         assertEquals(workspaceRoot.toAbsolutePath().normalize(),
                 invoke(workspaceService, "resolveWorkspaceRootForDelete", new Class[]{Project.class}, validProject));

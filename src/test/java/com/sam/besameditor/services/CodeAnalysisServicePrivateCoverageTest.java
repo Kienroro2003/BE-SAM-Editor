@@ -59,6 +59,8 @@ class CodeAnalysisServicePrivateCoverageTest {
     private AnalyzedFunctionRepository analyzedFunctionRepository;
     @Mock
     private FlowGraphDataRepository flowGraphDataRepository;
+    @Mock
+    private CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService;
 
     @TempDir
     Path tempDir;
@@ -74,6 +76,7 @@ class CodeAnalysisServicePrivateCoverageTest {
                 analyzedFunctionRepository,
                 flowGraphDataRepository,
                 new JavaSourceAnalyzer(),
+                cloudinaryWorkspaceStorageService,
                 new ObjectMapper(),
                 32L
         );
@@ -180,6 +183,7 @@ class CodeAnalysisServicePrivateCoverageTest {
                 analyzedFunctionRepository,
                 flowGraphDataRepository,
                 new JavaSourceAnalyzer(),
+                cloudinaryWorkspaceStorageService,
                 mapper,
                 32L
         );

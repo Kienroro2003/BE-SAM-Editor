@@ -43,6 +43,10 @@ public class Project {
     @Column(length = 2048)
     private String cloudinaryUrl;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 32)
+    private CloudinaryDeliveryType cloudinaryDeliveryType;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;

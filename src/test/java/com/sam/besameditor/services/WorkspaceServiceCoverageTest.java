@@ -5,6 +5,7 @@ import com.sam.besameditor.dto.WorkspaceFileContentResponse;
 import com.sam.besameditor.dto.WorkspaceSummaryResponse;
 import com.sam.besameditor.exceptions.NotFoundException;
 import com.sam.besameditor.exceptions.WorkspacePayloadTooLargeException;
+import com.sam.besameditor.models.CloudinaryDeliveryType;
 import com.sam.besameditor.models.Project;
 import com.sam.besameditor.models.ProjectSourceType;
 import com.sam.besameditor.models.SourceFile;
@@ -123,6 +124,7 @@ class WorkspaceServiceCoverageTest {
         verify(projectRepository, atLeastOnce()).save(projectCaptor.capture());
         assertTrue(projectCaptor.getAllValues().stream().anyMatch(project ->
                 project.getSourceType() == ProjectSourceType.LOCAL_FOLDER
+                        && project.getCloudinaryDeliveryType() == CloudinaryDeliveryType.PRIVATE
                         && project.getSourceUrl().startsWith("file:")));
 
         ArgumentCaptor<List<SourceFile>> filesCaptor = ArgumentCaptor.forClass(List.class);
@@ -310,7 +312,7 @@ class WorkspaceServiceCoverageTest {
                 () -> workspaceService.getWorkspaceFileContent(22L, "src/App.java", "user@test.com")
         );
 
-        assertEquals("Workspace source not found on server", exception.getMessage());
+        assertEquals("Workspace source not found on cloud storage", exception.getMessage());
     }
 
     @Test
@@ -364,6 +366,35 @@ class WorkspaceServiceCoverageTest {
         );
 
         assertEquals("Invalid file path", exception.getMessage());
+    }
+
+    @Test
+    void getWorkspaceFileContent_ShouldPreferCloudinaryArchive_WhenArchiveMetadataExists() {
+        User user = createUser(7L, "user@test.com");
+        Project project = new Project();
+        project.setId(22L);
+        project.setName("repo");
+        project.setUser(user);
+        project.setStoragePath("\0");
+        project.setCloudinaryPublicId("workspace-archive");
+        project.setCloudinaryUrl("https://res.cloudinary.com/demo/raw/upload/workspace-archive.zip");
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(22L, 7L)).thenReturn(Optional.of(project));
+        when(cloudinaryWorkspaceStorageService.readFileFromArchive(
+                "workspace-archive",
+                "https://res.cloudinary.com/demo/raw/upload/workspace-archive.zip",
+                CloudinaryDeliveryType.UPLOAD,
+                "src/App.java",
+                1_048_576L))
+                .thenReturn("class CloudApp {}".getBytes(StandardCharsets.UTF_8));
+
+        WorkspaceFileContentResponse response =
+                workspaceService.getWorkspaceFileContent(22L, "src/App.java", "user@test.com");
+
+        assertEquals("class CloudApp {}", response.getContent());
+        assertEquals("JAVA", response.getLanguage());
+        assertEquals(17L, response.getSizeBytes());
     }
 
     private User createUser(Long id, String email) {

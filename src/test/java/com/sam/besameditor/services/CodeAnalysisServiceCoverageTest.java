@@ -5,6 +5,7 @@ import com.sam.besameditor.analysis.JavaSourceAnalyzer;
 import com.sam.besameditor.dto.JavaFileAnalysisResponse;
 import com.sam.besameditor.exceptions.NotFoundException;
 import com.sam.besameditor.models.AnalyzedFunction;
+import com.sam.besameditor.models.CloudinaryDeliveryType;
 import com.sam.besameditor.models.FlowGraphData;
 import com.sam.besameditor.models.Project;
 import com.sam.besameditor.models.SourceFile;
@@ -30,13 +31,17 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,6 +61,8 @@ class CodeAnalysisServiceCoverageTest {
     private AnalyzedFunctionRepository analyzedFunctionRepository;
     @Mock
     private FlowGraphDataRepository flowGraphDataRepository;
+    @Mock
+    private CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService;
 
     @TempDir
     Path tempDir;
@@ -71,6 +78,7 @@ class CodeAnalysisServiceCoverageTest {
                 analyzedFunctionRepository,
                 flowGraphDataRepository,
                 new JavaSourceAnalyzer(),
+                cloudinaryWorkspaceStorageService,
                 new ObjectMapper(),
                 1_048_576L
         );
@@ -289,6 +297,7 @@ class CodeAnalysisServiceCoverageTest {
                 analyzedFunctionRepository,
                 flowGraphDataRepository,
                 new JavaSourceAnalyzer(),
+                cloudinaryWorkspaceStorageService,
                 new ObjectMapper(),
                 4L
         );
@@ -358,6 +367,68 @@ class CodeAnalysisServiceCoverageTest {
         assertFalse(response.isCached());
         assertTrue(response.getFunctions().isEmpty());
         verify(analyzedFunctionRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    void analyzeJavaFile_ShouldReadFromCloudinaryArchive_WhenStoragePathMissing() throws IOException {
+        String relativePath = "src/Sample.java";
+        String content = """
+                class Sample {
+                    int sum(int a, int b) {
+                        return a + b;
+                    }
+                }
+                """;
+
+        User user = createUser(1L, "user@test.com");
+        Project project = new Project();
+        project.setId(30L);
+        project.setUser(user);
+        project.setName("cloud-workspace");
+        project.setCloudinaryPublicId("workspace-archive");
+        project.setCloudinaryUrl("https://res.cloudinary.com/demo/raw/upload/workspace-archive.zip");
+        project.setCloudinaryDeliveryType(CloudinaryDeliveryType.PRIVATE);
+
+        SourceFile sourceFile = createSourceFile(31L, project, relativePath, "JAVA");
+        AtomicReference<Path> materializedRoot = new AtomicReference<>();
+
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(projectRepository.findByIdAndUser_Id(30L, 1L)).thenReturn(Optional.of(project));
+        when(sourceFileRepository.findByProject_IdAndFilePath(30L, relativePath)).thenReturn(Optional.of(sourceFile));
+        when(analyzedFunctionRepository.findBySourceFile_IdOrderByStartLineAsc(31L)).thenReturn(List.of());
+        when(sourceFileRepository.save(any(SourceFile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(analyzedFunctionRepository.saveAll(anyList())).thenAnswer(invocation -> {
+            List<AnalyzedFunction> functions = invocation.getArgument(0);
+            long nextId = 500L;
+            for (AnalyzedFunction function : functions) {
+                function.setId(nextId++);
+            }
+            return functions;
+        });
+        doAnswer(invocation -> {
+            Path restoredRoot = invocation.getArgument(0);
+            materializedRoot.set(restoredRoot);
+            Path targetFile = restoredRoot.resolve(relativePath);
+            Files.createDirectories(targetFile.getParent());
+            Files.writeString(targetFile, content, StandardCharsets.UTF_8);
+            return null;
+        }).when(cloudinaryWorkspaceStorageService).restoreWorkspaceArchive(
+                any(Path.class),
+                eq("workspace-archive"),
+                eq("https://res.cloudinary.com/demo/raw/upload/workspace-archive.zip"),
+                eq(CloudinaryDeliveryType.PRIVATE));
+
+        JavaFileAnalysisResponse response = codeAnalysisService.analyzeJavaFile(30L, relativePath, "user@test.com");
+
+        assertFalse(response.isCached());
+        assertEquals(1, response.getFunctions().size());
+        assertNotNull(materializedRoot.get());
+        assertFalse(Files.exists(materializedRoot.get()));
+        verify(cloudinaryWorkspaceStorageService).restoreWorkspaceArchive(
+                any(Path.class),
+                eq("workspace-archive"),
+                eq("https://res.cloudinary.com/demo/raw/upload/workspace-archive.zip"),
+                eq(CloudinaryDeliveryType.PRIVATE));
     }
 
     private User createUser(Long id, String email) {

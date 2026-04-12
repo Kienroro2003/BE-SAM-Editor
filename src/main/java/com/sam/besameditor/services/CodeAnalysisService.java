@@ -14,6 +14,7 @@ import com.sam.besameditor.dto.FunctionAnalysisSummaryResponse;
 import com.sam.besameditor.dto.FunctionCfgResponse;
 import com.sam.besameditor.dto.JavaFileAnalysisResponse;
 import com.sam.besameditor.exceptions.NotFoundException;
+import com.sam.besameditor.models.CloudinaryDeliveryType;
 import com.sam.besameditor.models.AnalyzedFunction;
 import com.sam.besameditor.models.FlowGraphData;
 import com.sam.besameditor.models.Project;
@@ -39,6 +40,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
@@ -61,6 +63,7 @@ public class CodeAnalysisService {
     private final AnalyzedFunctionRepository analyzedFunctionRepository;
     private final FlowGraphDataRepository flowGraphDataRepository;
     private final JavaSourceAnalyzer javaSourceAnalyzer;
+    private final CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService;
     private final ObjectMapper objectMapper;
     private final long fileContentMaxBytes;
 
@@ -71,6 +74,7 @@ public class CodeAnalysisService {
             AnalyzedFunctionRepository analyzedFunctionRepository,
             FlowGraphDataRepository flowGraphDataRepository,
             JavaSourceAnalyzer javaSourceAnalyzer,
+            CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService,
             ObjectMapper objectMapper,
             @Value("${app.workspace.file-content-max-bytes:1048576}") long fileContentMaxBytes) {
         this.userRepository = userRepository;
@@ -79,6 +83,7 @@ public class CodeAnalysisService {
         this.analyzedFunctionRepository = analyzedFunctionRepository;
         this.flowGraphDataRepository = flowGraphDataRepository;
         this.javaSourceAnalyzer = javaSourceAnalyzer;
+        this.cloudinaryWorkspaceStorageService = cloudinaryWorkspaceStorageService;
         this.objectMapper = objectMapper;
         this.fileContentMaxBytes = fileContentMaxBytes;
     }
@@ -274,7 +279,20 @@ public class CodeAnalysisService {
     }
 
     private String readSourceContent(Project project, String normalizedPath) {
+        if (hasCloudinaryArchive(project)) {
+            Path tempWorkspaceRoot = materializeWorkspaceRoot(project);
+            try {
+                return readSourceContent(tempWorkspaceRoot, normalizedPath);
+            } finally {
+                deleteDirectoryIfExistsQuietly(tempWorkspaceRoot);
+            }
+        }
+
         Path workspaceRoot = resolveWorkspaceRoot(project);
+        return readSourceContent(workspaceRoot, normalizedPath);
+    }
+
+    private String readSourceContent(Path workspaceRoot, String normalizedPath) {
         Path targetFile = workspaceRoot.resolve(normalizedPath).normalize();
         if (!targetFile.startsWith(workspaceRoot)) {
             throw new IllegalArgumentException("Invalid file path");
@@ -301,6 +319,27 @@ public class CodeAnalysisService {
         }
     }
 
+    private Path materializeWorkspaceRoot(Project project) {
+        Path tempWorkspaceRoot;
+        try {
+            tempWorkspaceRoot = Files.createTempDirectory("workspace-analysis-");
+        } catch (IOException ex) {
+            throw new IllegalArgumentException("Unable to read source file for analysis", ex);
+        }
+
+        try {
+            cloudinaryWorkspaceStorageService.restoreWorkspaceArchive(
+                    tempWorkspaceRoot,
+                    project.getCloudinaryPublicId(),
+                    project.getCloudinaryUrl(),
+                    resolveCloudinaryDeliveryType(project));
+            return tempWorkspaceRoot;
+        } catch (RuntimeException ex) {
+            deleteDirectoryIfExistsQuietly(tempWorkspaceRoot);
+            throw ex;
+        }
+    }
+
     private Path resolveWorkspaceRoot(Project project) {
         String rawStoragePath = project.getStoragePath();
         if (rawStoragePath == null || rawStoragePath.isBlank()) {
@@ -315,6 +354,32 @@ public class CodeAnalysisService {
             return workspaceRoot;
         } catch (InvalidPathException ex) {
             throw new IllegalArgumentException("Workspace source path is invalid", ex);
+        }
+    }
+
+    private boolean hasCloudinaryArchive(Project project) {
+        return (project.getCloudinaryPublicId() != null && !project.getCloudinaryPublicId().isBlank())
+                || (project.getCloudinaryUrl() != null && !project.getCloudinaryUrl().isBlank());
+    }
+
+    private CloudinaryDeliveryType resolveCloudinaryDeliveryType(Project project) {
+        return CloudinaryDeliveryType.resolve(project.getCloudinaryDeliveryType());
+    }
+
+    private void deleteDirectoryIfExistsQuietly(Path workspaceRoot) {
+        if (workspaceRoot == null || !Files.exists(workspaceRoot)) {
+            return;
+        }
+        try (var walk = Files.walk(workspaceRoot)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ignored) {
+                    // best effort cleanup
+                }
+            });
+        } catch (IOException ignored) {
+            // best effort cleanup
         }
     }
 
