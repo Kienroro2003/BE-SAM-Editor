@@ -9,11 +9,16 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -21,7 +26,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.stream.Stream;
 
 @Service
 public class DockerJsCoverageSandboxRunner implements CoverageSandboxRunner {
@@ -31,6 +35,20 @@ public class DockerJsCoverageSandboxRunner implements CoverageSandboxRunner {
     private static final Duration COPY_TIMEOUT = Duration.ofSeconds(30);
     private static final String CONTAINER_WORKDIR = "/sandbox/project";
     private static final String LCOV_REPORT_PATH = CONTAINER_WORKDIR + "/coverage/lcov.info";
+    private static final List<String> SUPPORTED_TEST_EXTENSIONS = List.of(".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs");
+    private static final List<String> TEST_FILE_MARKERS = List.of(".test.", ".spec.", "-test.", "-spec.", "_test.", "_spec.");
+    private static final TreeSet<String> TEST_SCAN_EXCLUDED_DIRS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+
+    static {
+        TEST_SCAN_EXCLUDED_DIRS.add("node_modules");
+        TEST_SCAN_EXCLUDED_DIRS.add(".git");
+        TEST_SCAN_EXCLUDED_DIRS.add("coverage");
+        TEST_SCAN_EXCLUDED_DIRS.add("dist");
+        TEST_SCAN_EXCLUDED_DIRS.add("build");
+        TEST_SCAN_EXCLUDED_DIRS.add(".next");
+        TEST_SCAN_EXCLUDED_DIRS.add(".nuxt");
+        TEST_SCAN_EXCLUDED_DIRS.add("out");
+    }
 
     private final String dockerBinary;
     private final String dockerHost;
@@ -77,11 +95,24 @@ public class DockerJsCoverageSandboxRunner implements CoverageSandboxRunner {
         }
 
         MountSpec mountSpec = resolveMountSpec(normalizedWorkspaceRoot);
-        TestSelection testSelection = resolveTestSelection(normalizedWorkspaceRoot, sourceFilePath);
         TestRunnerType runnerType = detectTestRunner(normalizedWorkspaceRoot);
+        TestSelection testSelection = resolveTestSelection(normalizedWorkspaceRoot, sourceFilePath);
         String logicalCommand = buildLogicalCommand(runnerType, testSelection);
+        if (shouldShortCircuitNoTests(normalizedWorkspaceRoot, runnerType)) {
+            return new SandboxCoverageExecutionResult(
+                    CoverageRunStatus.NO_TESTS_FOUND,
+                    0,
+                    logicalCommand,
+                    "",
+                    "No recognized test files were found for this project, so coverage was not generated.",
+                    null);
+        }
         String containerName = "be-sam-coverage-js-" + UUID.randomUUID().toString().replace("-", "");
-        String containerScript = buildContainerScript(mountSpec.sourceDirectoryInContainer(), runnerType, testSelection);
+        String containerScript = buildContainerScript(
+                normalizedWorkspaceRoot,
+                mountSpec.sourceDirectoryInContainer(),
+                runnerType,
+                testSelection);
         List<String> createCommand = buildCreateCommand(containerName, mountSpec, containerScript);
 
         log.info(
@@ -204,6 +235,9 @@ public class DockerJsCoverageSandboxRunner implements CoverageSandboxRunner {
             if (hasJestConfig(workspaceRoot) || packageJson.contains("\"jest\"")) {
                 return TestRunnerType.JEST;
             }
+            if (packageJson.contains("\"react-scripts\"")) {
+                return TestRunnerType.REACT_SCRIPTS;
+            }
         } catch (IOException ex) {
             log.debug("Unable to read package.json for test runner detection", ex);
         }
@@ -226,39 +260,54 @@ public class DockerJsCoverageSandboxRunner implements CoverageSandboxRunner {
                 || Files.exists(workspaceRoot.resolve("vite.config.ts"));
     }
 
-    private String buildLogicalCommand(TestRunnerType runnerType, TestSelection testSelection) {
+    String buildLogicalCommand(TestRunnerType runnerType, TestSelection testSelection) {
+        String patternSuffix = testSelection.pattern() != null && !testSelection.pattern().isBlank()
+                ? " " + quoteCommandPart(testSelection.pattern())
+                : "";
         return switch (runnerType) {
-            case JEST -> "npx jest --coverage" + (testSelection.pattern() != null ? " " + testSelection.pattern() : "");
-            case VITEST -> "npx vitest run --coverage" + (testSelection.pattern() != null ? " " + testSelection.pattern() : "");
+            case JEST -> "npx jest --coverage" + patternSuffix;
+            case VITEST -> "npx vitest run --coverage" + patternSuffix;
+            case REACT_SCRIPTS -> "CI=true npm test -- --watchAll=false --coverage --passWithNoTests" + patternSuffix;
             case NPM_TEST -> "npm test";
         };
     }
 
-    private String buildContainerScript(String sourceDirectoryInContainer, TestRunnerType runnerType, TestSelection testSelection) {
+    String buildContainerScript(
+            Path workspaceRoot,
+            String sourceDirectoryInContainer,
+            TestRunnerType runnerType,
+            TestSelection testSelection) {
         String escapedSourceDir = escapeShell(sourceDirectoryInContainer);
+        String installCommand = resolveInstallCommand(workspaceRoot);
         StringBuilder script = new StringBuilder();
         script.append("set -e; ");
         script.append("mkdir -p ").append(CONTAINER_WORKDIR).append("; ");
         script.append("cp -R '").append(escapedSourceDir).append("/.' '").append(CONTAINER_WORKDIR).append("/'; ");
         script.append("cd '").append(CONTAINER_WORKDIR).append("'; ");
-        script.append("npm install --ignore-scripts 2>&1 || true; ");
+        script.append(installCommand).append(" 2>&1 || true; ");
 
         switch (runnerType) {
             case JEST -> {
                 script.append("npx jest --coverage --coverageReporters=lcov --forceExit");
-                if (testSelection.pattern() != null && !testSelection.pattern().isBlank()) {
-                    script.append(" ").append(testSelection.pattern());
-                }
+                appendShellArgument(script, testSelection.pattern());
             }
             case VITEST -> {
                 script.append("npx vitest run --coverage --reporter=default --coverage.reporter=lcov");
-                if (testSelection.pattern() != null && !testSelection.pattern().isBlank()) {
-                    script.append(" ").append(testSelection.pattern());
-                }
+                appendShellArgument(script, testSelection.pattern());
+            }
+            case REACT_SCRIPTS -> {
+                script.append("CI=true npm test -- --watchAll=false --coverage --passWithNoTests");
+                appendShellArgument(script, testSelection.pattern());
             }
             case NPM_TEST -> script.append("npm test");
         }
         return script.toString();
+    }
+
+    String resolveInstallCommand(Path workspaceRoot) {
+        return Files.exists(workspaceRoot.resolve("package-lock.json"))
+                ? "npm ci --ignore-scripts"
+                : "npm install --ignore-scripts";
     }
 
     private List<String> buildCreateCommand(String containerName, MountSpec mountSpec, String containerScript) {
@@ -326,25 +375,17 @@ public class DockerJsCoverageSandboxRunner implements CoverageSandboxRunner {
             return TestSelection.none("full-suite (source file name could not be determined)");
         }
 
-        List<Path> testDirs = findTestDirs(workspaceRoot);
-        if (testDirs.isEmpty()) {
-            return TestSelection.none("full-suite (no test directories found)");
+        List<Path> recognizedTestFiles = findRecognizedTestFiles(workspaceRoot);
+        if (recognizedTestFiles.isEmpty()) {
+            return TestSelection.none("full-suite (no recognized test files found)");
         }
 
-        List<String> matchingTests = new ArrayList<>();
-        for (Path testDir : testDirs) {
-            try (Stream<Path> paths = Files.walk(testDir)) {
-                paths.filter(Files::isRegularFile)
-                        .map(path -> path.getFileName().toString())
-                        .filter(fileName -> isRelatedTestFile(fileName, sourceBaseName))
-                        .map(fileName -> fileName.substring(0, fileName.lastIndexOf('.')))
-                        .distinct()
-                        .sorted()
-                        .forEach(matchingTests::add);
-            } catch (IOException ex) {
-                log.debug("Unable to scan tests in {}", testDir, ex);
-            }
-        }
+        List<String> matchingTests = recognizedTestFiles.stream()
+                .filter(path -> isRelatedTestFile(path, sourceBaseName))
+                .map(this::toTestPattern)
+                .distinct()
+                .sorted()
+                .toList();
 
         if (matchingTests.isEmpty()) {
             return TestSelection.none("full-suite (no related tests found)");
@@ -353,29 +394,101 @@ public class DockerJsCoverageSandboxRunner implements CoverageSandboxRunner {
         return new TestSelection(pattern, "related-tests " + matchingTests);
     }
 
-    private List<Path> findTestDirs(Path workspaceRoot) {
-        List<Path> testDirs = new ArrayList<>();
-        for (String candidate : List.of("__tests__", "test", "tests", "spec", "src")) {
-            Path dir = workspaceRoot.resolve(candidate);
-            if (Files.isDirectory(dir)) {
-                testDirs.add(dir);
-            }
+    boolean hasRecognizedTests(Path workspaceRoot) {
+        try {
+            List<Path> recognizedTests = findRecognizedTestFiles(workspaceRoot);
+            return !recognizedTests.isEmpty();
+        } catch (RuntimeException ex) {
+            log.debug("Unable to determine whether JS tests exist in {}", workspaceRoot, ex);
+            return true;
         }
-        return testDirs;
     }
 
-    private boolean isRelatedTestFile(String fileName, String sourceBaseName) {
-        String lowerFileName = fileName.toLowerCase();
-        String lowerBaseName = sourceBaseName.toLowerCase();
-        return (lowerFileName.startsWith(lowerBaseName + ".test.")
+    private boolean shouldShortCircuitNoTests(Path workspaceRoot, TestRunnerType runnerType) {
+        return switch (runnerType) {
+            case JEST, VITEST, REACT_SCRIPTS -> !hasRecognizedTests(workspaceRoot);
+            case NPM_TEST -> false;
+        };
+    }
+
+    private List<Path> findRecognizedTestFiles(Path workspaceRoot) {
+        List<Path> testFiles = new ArrayList<>();
+        try {
+            Files.walkFileTree(workspaceRoot, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    if (workspaceRoot.equals(dir)) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                    String directoryName = dir.getFileName() != null ? dir.getFileName().toString() : "";
+                    if (TEST_SCAN_EXCLUDED_DIRS.contains(directoryName)) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    Path relativePath = workspaceRoot.relativize(file);
+                    if (isRecognizedTestFile(relativePath)) {
+                        testFiles.add(relativePath);
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException ex) {
+            throw new IllegalStateException("Unable to scan workspace for JS tests", ex);
+        }
+        return testFiles;
+    }
+
+    private boolean isRelatedTestFile(Path relativePath, String sourceBaseName) {
+        String fileName = relativePath.getFileName() != null ? relativePath.getFileName().toString() : "";
+        String lowerFileName = fileName.toLowerCase(Locale.ROOT);
+        String lowerBaseName = sourceBaseName.toLowerCase(Locale.ROOT);
+        boolean conventionalMatch = (lowerFileName.startsWith(lowerBaseName + ".test.")
                 || lowerFileName.startsWith(lowerBaseName + ".spec.")
                 || lowerFileName.startsWith(lowerBaseName + "-test.")
                 || lowerFileName.startsWith(lowerBaseName + "-spec.")
                 || lowerFileName.startsWith(lowerBaseName + "_test.")
                 || lowerFileName.startsWith(lowerBaseName + "_spec."))
-                && (lowerFileName.endsWith(".js") || lowerFileName.endsWith(".ts")
-                || lowerFileName.endsWith(".jsx") || lowerFileName.endsWith(".tsx")
-                || lowerFileName.endsWith(".mjs") || lowerFileName.endsWith(".cjs"));
+                && hasSupportedTestExtension(lowerFileName);
+        if (conventionalMatch) {
+            return true;
+        }
+        return isInsideTestsDirectory(relativePath) && extractBaseName(fileName) != null
+                && extractBaseName(fileName).equalsIgnoreCase(sourceBaseName);
+    }
+
+    private String toTestPattern(Path relativePath) {
+        String fileName = relativePath.getFileName() != null ? relativePath.getFileName().toString() : relativePath.toString();
+        int lastDot = fileName.lastIndexOf('.');
+        return lastDot > 0 ? fileName.substring(0, lastDot) : fileName;
+    }
+
+    private boolean isRecognizedTestFile(Path relativePath) {
+        String fileName = relativePath.getFileName() != null ? relativePath.getFileName().toString() : "";
+        String lowerFileName = fileName.toLowerCase(Locale.ROOT);
+        if (!hasSupportedTestExtension(lowerFileName)) {
+            return false;
+        }
+        if (isInsideTestsDirectory(relativePath)) {
+            return true;
+        }
+        return TEST_FILE_MARKERS.stream().anyMatch(lowerFileName::contains);
+    }
+
+    private boolean isInsideTestsDirectory(Path relativePath) {
+        for (Path segment : relativePath) {
+            if ("__tests__".equalsIgnoreCase(segment.toString())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasSupportedTestExtension(String lowerFileName) {
+        return SUPPORTED_TEST_EXTENSIONS.stream().anyMatch(lowerFileName::endsWith);
     }
 
     private String extractBaseName(String sourceFilePath) {
@@ -462,6 +575,13 @@ public class DockerJsCoverageSandboxRunner implements CoverageSandboxRunner {
         return value.replace("'", "'\"'\"'");
     }
 
+    private void appendShellArgument(StringBuilder script, String value) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        script.append(" '").append(escapeShell(value)).append("'");
+    }
+
     private String extractContainerId(String createOutput) {
         if (createOutput == null || createOutput.isBlank()) {
             return null;
@@ -532,6 +652,7 @@ public class DockerJsCoverageSandboxRunner implements CoverageSandboxRunner {
     enum TestRunnerType {
         JEST,
         VITEST,
+        REACT_SCRIPTS,
         NPM_TEST
     }
 

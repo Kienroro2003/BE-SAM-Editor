@@ -1,5 +1,6 @@
 package com.sam.besameditor.coverage;
 
+import com.sam.besameditor.models.CoverageRunStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -87,6 +88,22 @@ class DockerJsCoverageSandboxRunnerTest {
     }
 
     @Test
+    void detectTestRunner_ShouldReturnReactScripts_WhenReactScriptsInPackageJson() throws Exception {
+        Path workspace = tempDir.resolve("cra-project");
+        Files.createDirectories(workspace);
+        Files.writeString(workspace.resolve("package.json"), """
+                {
+                  "dependencies": {
+                    "react-scripts": "5.0.1"
+                  }
+                }
+                """);
+
+        DockerJsCoverageSandboxRunner runner = createRunner();
+        assertEquals(DockerJsCoverageSandboxRunner.TestRunnerType.REACT_SCRIPTS, runner.detectTestRunner(workspace));
+    }
+
+    @Test
     void resolveTestSelection_ShouldFindRelatedTests() throws Exception {
         Path workspace = tempDir.resolve("test-resolve");
         Path testsDir = workspace.resolve("__tests__");
@@ -117,6 +134,75 @@ class DockerJsCoverageSandboxRunnerTest {
 
         assertNull(selection.pattern());
         assertEquals(true, selection.description().contains("full-suite"));
+    }
+
+    @Test
+    void resolveInstallCommand_ShouldPreferNpmCi_WhenPackageLockExists() throws Exception {
+        Path workspace = tempDir.resolve("lockfile-project");
+        Files.createDirectories(workspace);
+        Files.writeString(workspace.resolve("package.json"), "{}");
+        Files.writeString(workspace.resolve("package-lock.json"), "{\"lockfileVersion\":3}");
+
+        DockerJsCoverageSandboxRunner runner = createRunner();
+
+        assertEquals("npm ci --ignore-scripts", runner.resolveInstallCommand(workspace));
+    }
+
+    @Test
+    void buildLogicalCommand_ShouldUseCraFlags_WhenReactScriptsDetected() {
+        DockerJsCoverageSandboxRunner runner = createRunner();
+
+        String command = runner.buildLogicalCommand(
+                DockerJsCoverageSandboxRunner.TestRunnerType.REACT_SCRIPTS,
+                new DockerJsCoverageSandboxRunner.TestSelection("helper.test", "related-tests [helper.test]"));
+
+        assertEquals("CI=true npm test -- --watchAll=false --coverage --passWithNoTests helper.test", command);
+    }
+
+    @Test
+    void buildContainerScript_ShouldUseCraCommandAndNpmCi_WhenPackageLockExists() throws Exception {
+        Path workspace = tempDir.resolve("cra-script");
+        Files.createDirectories(workspace);
+        Files.writeString(workspace.resolve("package.json"), """
+                {
+                  "dependencies": {
+                    "react-scripts": "5.0.1"
+                  }
+                }
+                """);
+        Files.writeString(workspace.resolve("package-lock.json"), "{\"lockfileVersion\":3}");
+
+        DockerJsCoverageSandboxRunner runner = createRunner();
+        String script = runner.buildContainerScript(
+                workspace,
+                "/mounted-workspace",
+                DockerJsCoverageSandboxRunner.TestRunnerType.REACT_SCRIPTS,
+                new DockerJsCoverageSandboxRunner.TestSelection("helper.test", "related-tests [helper.test]"));
+
+        assertEquals(true, script.contains("npm ci --ignore-scripts 2>&1 || true;"));
+        assertEquals(true, script.contains("CI=true npm test -- --watchAll=false --coverage --passWithNoTests 'helper.test'"));
+    }
+
+    @Test
+    void run_ShouldReturnNoTestsFound_WhenReactScriptsProjectHasNoRecognizedTests() throws Exception {
+        Path workspace = tempDir.resolve("cra-no-tests");
+        Files.createDirectories(workspace.resolve("src"));
+        Files.writeString(workspace.resolve("package.json"), """
+                {
+                  "dependencies": {
+                    "react-scripts": "5.0.1"
+                  }
+                }
+                """);
+        Files.writeString(workspace.resolve("src/App.js"), "export const App = () => null;");
+
+        DockerJsCoverageSandboxRunner runner = createRunner();
+        SandboxCoverageExecutionResult result = runner.run(workspace, "src/App.js");
+
+        assertEquals(CoverageRunStatus.NO_TESTS_FOUND, result.status());
+        assertEquals(0, result.exitCode());
+        assertEquals("CI=true npm test -- --watchAll=false --coverage --passWithNoTests", result.command());
+        assertNull(result.reportPath());
     }
 
     @Test

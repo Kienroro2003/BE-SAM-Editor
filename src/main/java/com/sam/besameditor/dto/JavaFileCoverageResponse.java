@@ -1,5 +1,7 @@
 package com.sam.besameditor.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -80,10 +82,12 @@ public class JavaFileCoverageResponse {
         return command;
     }
 
+    @JsonIgnore
     public String getStdout() {
         return stdout;
     }
 
+    @JsonIgnore
     public String getStderr() {
         return stderr;
     }

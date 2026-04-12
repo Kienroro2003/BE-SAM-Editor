@@ -1373,7 +1373,7 @@
           ]
         },
         {
-          "name": "Run Java Coverage",
+          "name": "Run Coverage (Java)",
           "request": {
             "auth": {
               "type": "bearer",
@@ -1629,7 +1629,7 @@
                   "}",
                   "const analysisFunctionId = (pm.environment.get('analysisFunctionId') || '').trim();",
                   "if (!analysisFunctionId || analysisFunctionId === 'undefined' || analysisFunctionId === 'null') {",
-                  "  throw new Error('analysisFunctionId is empty. Run Analyze Java File, Get Function Summaries, or Run Java Coverage first.');",
+                  "  throw new Error('analysisFunctionId is empty. Run Analyze File, Get Function Summaries, or Run Coverage first.');",
                   "}"
                 ]
               }
@@ -1714,16 +1714,17 @@
                   "}",
                   "const analysisFunctionId = (pm.environment.get('analysisFunctionId') || '').trim();",
                   "if (!analysisFunctionId || analysisFunctionId === 'undefined' || analysisFunctionId === 'null') {",
-                  "  throw new Error('analysisFunctionId is empty. Run Analyze Java File, Get Function Summaries, or Run Java Coverage first.');",
+                  "  throw new Error('analysisFunctionId is empty. Run Analyze File, Get Function Summaries, or Run Coverage first.');",
                   "}",
                   "const coverageRunId = (pm.environment.get('coverageRunId') || '').trim();",
                   "if (!coverageRunId || coverageRunId === 'undefined' || coverageRunId === 'null') {",
-                  "  throw new Error('coverageRunId is empty. Run Java Coverage first.');",
+                  "  throw new Error('coverageRunId is empty. Run Coverage first.');",
                   "}",
                   "const coverageStatus = pm.environment.get('coverageStatus');",
                   "const coverageOverlayAvailable = (pm.environment.get('coverageOverlayAvailable') || '').toLowerCase();",
-                  "if (coverageStatus !== 'SUCCEEDED' || coverageOverlayAvailable !== 'true') {",
-                  "  throw new Error('Current coverage run does not have overlay data. Run Java Coverage again and make sure it returns SUCCEEDED with overlayAvailable=true.');",
+                  "const canUseCoverageRun = (coverageStatus === 'SUCCEEDED' && coverageOverlayAvailable === 'true') || coverageStatus === 'NO_TESTS_FOUND';",
+                  "if (!canUseCoverageRun) {",
+                  "  throw new Error('Current coverage run cannot be used for CFG with coverage. Run Coverage again and make sure it returns SUCCEEDED with overlayAvailable=true or NO_TESTS_FOUND.');",
                   "}"
                 ]
               }
