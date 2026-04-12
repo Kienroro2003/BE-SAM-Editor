@@ -1463,6 +1463,199 @@
           ]
         }
       ]
+    },
+    {
+      "name": "AI Features",
+      "item": [
+        {
+          "name": "AI Suggest Tests (JavaScript example)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceCode\": \"function isEligible(age) {\\n  if (age >= 18) {\\n    return 'adult';\\n  }\\n  return 'minor';\\n}\\n\\nmodule.exports = { isEligible };\",\n  \"testCode\": \"const { isEligible } = require('./eligibility');\\n\\ndescribe('isEligible', () => {\\n  it('returns adult when age is 18 or above', () => {\\n    expect(isEligible(20)).toBe('adult');\\n  });\\n});\",\n  \"coverageResult\": {\n    \"coveredLines\": [1, 2, 3],\n    \"uncoveredLines\": [5],\n    \"coveredBranches\": [\"age >= 18 true\"],\n    \"uncoveredBranches\": [\"age >= 18 false\"],\n    \"coveredFunctions\": [\"isEligible\"],\n    \"uncoveredFunctions\": [],\n    \"coveragePercentage\": 75\n  },\n  \"language\": \"javascript\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/ai/suggest-tests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ai",
+                "suggest-tests"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "AI Suggest Tests (Python example)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceCode\": \"def shipping_fee(total):\\n    if total >= 100:\\n        return 0\\n    return 10\",\n  \"testCode\": \"import pytest\\nfrom shipping import shipping_fee\\n\\ndef test_shipping_fee_free_for_large_order():\\n    assert shipping_fee(120) == 0\",\n  \"coverageResult\": {\n    \"coveredLines\": [1, 2, 3],\n    \"uncoveredLines\": [4],\n    \"coveredBranches\": [\"total >= 100 true\"],\n    \"uncoveredBranches\": [\"total >= 100 false\"],\n    \"coveredFunctions\": [\"shipping_fee\"],\n    \"uncoveredFunctions\": [],\n    \"coveragePercentage\": 80\n  },\n  \"language\": \"python\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/ai/suggest-tests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ai",
+                "suggest-tests"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "AI Suggest Tests (Java example)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceCode\": \"public class DiscountCalculator {\\n  public int discount(int amount) {\\n    if (amount >= 1000) {\\n      return 20;\\n    } else if (amount >= 500) {\\n      return 10;\\n    }\\n    return 0;\\n  }\\n}\",\n  \"testCode\": \"import org.junit.jupiter.api.Test;\\nimport static org.junit.jupiter.api.Assertions.assertEquals;\\n\\nclass DiscountCalculatorTest {\\n\\n  @Test\\n  void returnsTwentyForLargeAmount() {\\n    DiscountCalculator calculator = new DiscountCalculator();\\n    assertEquals(20, calculator.discount(1200));\\n  }\\n}\",\n  \"coverageResult\": {\n    \"coveredLines\": [1, 2, 3, 4],\n    \"uncoveredLines\": [5, 6, 8],\n    \"coveredBranches\": [\"amount >= 1000 true\"],\n    \"uncoveredBranches\": [\"amount >= 1000 false\", \"amount >= 500 true\", \"amount >= 500 false\"],\n    \"coveredFunctions\": [\"discount\"],\n    \"uncoveredFunctions\": [],\n    \"coveragePercentage\": 57\n  },\n  \"language\": \"java\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/ai/suggest-tests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ai",
+                "suggest-tests"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "AI Suggest Tests (100% coverage case)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceCode\": \"function absoluteValue(n) {\\n  if (n >= 0) {\\n    return n;\\n  }\\n  return -n;\\n}\",\n  \"testCode\": \"describe('absoluteValue', () => {\\n  it('returns positive number as is', () => {\\n    expect(absoluteValue(5)).toBe(5);\\n  });\\n\\n  it('returns negated value for negative number', () => {\\n    expect(absoluteValue(-5)).toBe(5);\\n  });\\n});\",\n  \"coverageResult\": {\n    \"coveredLines\": [1, 2, 3, 5],\n    \"uncoveredLines\": [],\n    \"coveredBranches\": [\"n >= 0 true\", \"n >= 0 false\"],\n    \"uncoveredBranches\": [],\n    \"coveredFunctions\": [\"absoluteValue\"],\n    \"uncoveredFunctions\": [],\n    \"coveragePercentage\": 100\n  },\n  \"language\": \"javascript\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/ai/suggest-tests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "ai",
+                "suggest-tests"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }
