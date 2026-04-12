@@ -1072,6 +1072,207 @@
           ]
         },
         {
+          "name": "Analyze JS/TS File",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/{{projectId}}/analysis/js?path={{analysisJsFilePath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "workspaces",
+                "{{projectId}}",
+                "analysis",
+                "js"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "{{analysisJsFilePath}}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const accessToken = pm.environment.get('accessToken');",
+                  "if (!accessToken) {",
+                  "  throw new Error('accessToken is empty. Run Verify OTP or Login first.');",
+                  "}",
+                  "const projectId = pm.environment.get('projectId');",
+                  "if (!projectId) {",
+                  "  throw new Error('projectId is empty. Run import or list workspaces first.');",
+                  "}",
+                  "const analysisJsFilePath = (pm.environment.get('analysisJsFilePath') || '').trim();",
+                  "if (!analysisJsFilePath || analysisJsFilePath === 'undefined' || analysisJsFilePath === 'null') {",
+                  "  throw new Error('analysisJsFilePath is empty. Set a JS/TS source file path in the environment first.');",
+                  "}",
+                  "const ext = analysisJsFilePath.split('.').pop().toLowerCase();",
+                  "if (!['js', 'jsx', 'ts', 'tsx'].includes(ext)) {",
+                  "  throw new Error('analysisJsFilePath must point to a .js, .jsx, .ts, or .tsx source file.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('Response has analysis summary fields', function () {",
+                  "  pm.expect(body.projectId).to.exist;",
+                  "  pm.expect(body.path).to.exist;",
+                  "  pm.expect(body.language).to.exist;",
+                  "  pm.expect(Array.isArray(body.functions)).to.eql(true);",
+                  "  pm.expect(body.cached).to.be.a('boolean');",
+                  "});",
+                  "pm.test('Language is JAVASCRIPT or TYPESCRIPT', function () {",
+                  "  pm.expect(['JAVASCRIPT', 'TYPESCRIPT']).to.include(body.language);",
+                  "});",
+                  "if (body.path) pm.environment.set('analysisPath', body.path);",
+                  "if (body.language) pm.environment.set('analysisLanguage', body.language);",
+                  "if (typeof body.cached === 'boolean') pm.environment.set('analysisCached', String(body.cached));",
+                  "const rawIndex = Number(pm.environment.get('selectedFunctionIndex') || '0');",
+                  "const selectedFunctionIndex = Number.isInteger(rawIndex) && rawIndex >= 0 ? rawIndex : 0;",
+                  "const functions = Array.isArray(body.functions) ? body.functions : [];",
+                  "const selectedFunction = functions[selectedFunctionIndex];",
+                  "if (selectedFunction && selectedFunction.functionId != null) {",
+                  "  pm.environment.set('analysisFunctionId', String(selectedFunction.functionId));",
+                  "  pm.environment.set('analysisFunctionName', selectedFunction.functionName || '');",
+                  "  pm.environment.set('analysisFunctionSignature', selectedFunction.signature || '');",
+                  "  pm.environment.set('analysisFunctionStartLine', selectedFunction.startLine != null ? String(selectedFunction.startLine) : '');",
+                  "  pm.environment.set('analysisFunctionEndLine', selectedFunction.endLine != null ? String(selectedFunction.endLine) : '');",
+                  "} else {",
+                  "  pm.environment.unset('analysisFunctionId');",
+                  "  pm.environment.unset('analysisFunctionName');",
+                  "  pm.environment.unset('analysisFunctionSignature');",
+                  "  pm.environment.unset('analysisFunctionStartLine');",
+                  "  pm.environment.unset('analysisFunctionEndLine');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Analyze File (Auto-detect Language)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/{{projectId}}/analysis/file?path={{analysisFilePath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "workspaces",
+                "{{projectId}}",
+                "analysis",
+                "file"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "{{analysisFilePath}}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const accessToken = pm.environment.get('accessToken');",
+                  "if (!accessToken) {",
+                  "  throw new Error('accessToken is empty. Run Verify OTP or Login first.');",
+                  "}",
+                  "const projectId = pm.environment.get('projectId');",
+                  "if (!projectId) {",
+                  "  throw new Error('projectId is empty. Run import or list workspaces first.');",
+                  "}",
+                  "const analysisFilePath = (pm.environment.get('analysisFilePath') || '').trim();",
+                  "if (!analysisFilePath || analysisFilePath === 'undefined' || analysisFilePath === 'null') {",
+                  "  throw new Error('analysisFilePath is empty. Set a source file path (.java, .js, .ts, .py, etc.) in the environment first.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('Response has analysis summary fields', function () {",
+                  "  pm.expect(body.projectId).to.exist;",
+                  "  pm.expect(body.path).to.exist;",
+                  "  pm.expect(body.language).to.exist;",
+                  "  pm.expect(Array.isArray(body.functions)).to.eql(true);",
+                  "  pm.expect(body.cached).to.be.a('boolean');",
+                  "});",
+                  "if (body.path) pm.environment.set('analysisPath', body.path);",
+                  "if (body.language) pm.environment.set('analysisLanguage', body.language);",
+                  "if (typeof body.cached === 'boolean') pm.environment.set('analysisCached', String(body.cached));",
+                  "const rawIndex = Number(pm.environment.get('selectedFunctionIndex') || '0');",
+                  "const selectedFunctionIndex = Number.isInteger(rawIndex) && rawIndex >= 0 ? rawIndex : 0;",
+                  "const functions = Array.isArray(body.functions) ? body.functions : [];",
+                  "const selectedFunction = functions[selectedFunctionIndex];",
+                  "if (selectedFunction && selectedFunction.functionId != null) {",
+                  "  pm.environment.set('analysisFunctionId', String(selectedFunction.functionId));",
+                  "  pm.environment.set('analysisFunctionName', selectedFunction.functionName || '');",
+                  "  pm.environment.set('analysisFunctionSignature', selectedFunction.signature || '');",
+                  "  pm.environment.set('analysisFunctionStartLine', selectedFunction.startLine != null ? String(selectedFunction.startLine) : '');",
+                  "  pm.environment.set('analysisFunctionEndLine', selectedFunction.endLine != null ? String(selectedFunction.endLine) : '');",
+                  "} else {",
+                  "  pm.environment.unset('analysisFunctionId');",
+                  "  pm.environment.unset('analysisFunctionName');",
+                  "  pm.environment.unset('analysisFunctionSignature');",
+                  "  pm.environment.unset('analysisFunctionStartLine');",
+                  "  pm.environment.unset('analysisFunctionEndLine');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Get Function Summaries",
           "request": {
             "auth": {
@@ -1227,6 +1428,109 @@
                   "}",
                   "if (!analysisJavaFilePath.endsWith('.java')) {",
                   "  throw new Error('analysisJavaFilePath must point to a .java source file.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.environment.unset('cfgCoverageStatus');",
+                  "pm.test('Response has coverage summary fields', function () {",
+                  "  pm.expect(body.coverageRunId).to.exist;",
+                  "  pm.expect(body.projectId).to.exist;",
+                  "  pm.expect(body.path).to.exist;",
+                  "  pm.expect(body.language).to.exist;",
+                  "  pm.expect(body.status).to.exist;",
+                  "  pm.expect(Array.isArray(body.functions)).to.eql(true);",
+                  "  pm.expect(body.overlayAvailable).to.be.a('boolean');",
+                  "});",
+                  "if (body.coverageRunId != null) pm.environment.set('coverageRunId', String(body.coverageRunId));",
+                  "if (body.status) pm.environment.set('coverageStatus', body.status);",
+                  "if (typeof body.overlayAvailable === 'boolean') pm.environment.set('coverageOverlayAvailable', String(body.overlayAvailable));",
+                  "if (body.command) pm.environment.set('coverageCommand', body.command);",
+                  "if (body.path) pm.environment.set('analysisPath', body.path);",
+                  "if (body.language) pm.environment.set('analysisLanguage', body.language);",
+                  "const rawIndex = Number(pm.environment.get('selectedFunctionIndex') || '0');",
+                  "const selectedFunctionIndex = Number.isInteger(rawIndex) && rawIndex >= 0 ? rawIndex : 0;",
+                  "const functions = Array.isArray(body.functions) ? body.functions : [];",
+                  "const selectedFunction = functions[selectedFunctionIndex];",
+                  "if (selectedFunction && selectedFunction.functionId != null) {",
+                  "  pm.environment.set('analysisFunctionId', String(selectedFunction.functionId));",
+                  "  pm.environment.set('analysisFunctionName', selectedFunction.functionName || '');",
+                  "  pm.environment.set('analysisFunctionSignature', selectedFunction.signature || '');",
+                  "  pm.environment.set('analysisFunctionStartLine', selectedFunction.startLine != null ? String(selectedFunction.startLine) : '');",
+                  "  pm.environment.set('analysisFunctionEndLine', selectedFunction.endLine != null ? String(selectedFunction.endLine) : '');",
+                  "} else {",
+                  "  pm.environment.unset('analysisFunctionId');",
+                  "  pm.environment.unset('analysisFunctionName');",
+                  "  pm.environment.unset('analysisFunctionSignature');",
+                  "  pm.environment.unset('analysisFunctionStartLine');",
+                  "  pm.environment.unset('analysisFunctionEndLine');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run Coverage (Auto-detect Language)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/workspaces/{{projectId}}/analysis/coverage?path={{analysisFilePath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "workspaces",
+                "{{projectId}}",
+                "analysis",
+                "coverage"
+              ],
+              "query": [
+                {
+                  "key": "path",
+                  "value": "{{analysisFilePath}}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const accessToken = pm.environment.get('accessToken');",
+                  "if (!accessToken) {",
+                  "  throw new Error('accessToken is empty. Run Verify OTP or Login first.');",
+                  "}",
+                  "const projectId = pm.environment.get('projectId');",
+                  "if (!projectId) {",
+                  "  throw new Error('projectId is empty. Run import or list workspaces first.');",
+                  "}",
+                  "const analysisFilePath = (pm.environment.get('analysisFilePath') || '').trim();",
+                  "if (!analysisFilePath || analysisFilePath === 'undefined' || analysisFilePath === 'null') {",
+                  "  throw new Error('analysisFilePath is empty. Set a source file path in the environment first.');",
                   "}"
                 ]
               }

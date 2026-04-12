@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sam.besameditor.analysis.GraphEdgeDraft;
 import com.sam.besameditor.analysis.GraphNodeDraft;
 import com.sam.besameditor.analysis.JavaSourceAnalyzer;
+import com.sam.besameditor.analysis.JsSourceAnalyzer;
 import com.sam.besameditor.dto.FunctionCfgResponse;
 import com.sam.besameditor.dto.JavaFileAnalysisResponse;
 import com.sam.besameditor.exceptions.NotFoundException;
@@ -71,6 +72,7 @@ class CodeAnalysisServiceTest {
                 analyzedFunctionRepository,
                 flowGraphDataRepository,
                 new JavaSourceAnalyzer(),
+                new JsSourceAnalyzer(),
                 objectMapper,
                 1_048_576L);
     }

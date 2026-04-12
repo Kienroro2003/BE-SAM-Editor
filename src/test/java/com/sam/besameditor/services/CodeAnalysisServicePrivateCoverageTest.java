@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sam.besameditor.analysis.JavaSourceAnalyzer;
+import com.sam.besameditor.analysis.JsSourceAnalyzer;
+import com.sam.besameditor.analysis.JsSourceAnalyzer;
 import com.sam.besameditor.dto.JavaFileAnalysisResponse;
 import com.sam.besameditor.exceptions.NotFoundException;
 import com.sam.besameditor.models.Project;
@@ -74,6 +76,7 @@ class CodeAnalysisServicePrivateCoverageTest {
                 analyzedFunctionRepository,
                 flowGraphDataRepository,
                 new JavaSourceAnalyzer(),
+                new JsSourceAnalyzer(),
                 new ObjectMapper(),
                 32L
         );
@@ -180,6 +183,7 @@ class CodeAnalysisServicePrivateCoverageTest {
                 analyzedFunctionRepository,
                 flowGraphDataRepository,
                 new JavaSourceAnalyzer(),
+                new JsSourceAnalyzer(),
                 mapper,
                 32L
         );

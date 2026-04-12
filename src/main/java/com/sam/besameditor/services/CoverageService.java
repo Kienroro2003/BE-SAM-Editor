@@ -4,9 +4,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sam.besameditor.coverage.CoverageLineStat;
+import com.sam.besameditor.coverage.CoverageReportParser;
 import com.sam.besameditor.coverage.CoverageSandboxRunner;
+import com.sam.besameditor.coverage.CoverageSandboxRunnerRegistry;
 import com.sam.besameditor.coverage.CoverageStatus;
-import com.sam.besameditor.coverage.JaCoCoXmlParser;
 import com.sam.besameditor.coverage.SandboxCoverageExecutionResult;
 import com.sam.besameditor.dto.AnalysisGraphEdgeResponse;
 import com.sam.besameditor.dto.AnalysisGraphNodeResponse;
@@ -39,11 +40,12 @@ import java.util.Map;
 import java.util.Set;
 
 @Service
-public class JavaCoverageService {
+public class CoverageService {
 
     private static final TypeReference<List<CoverageLineStat>> LINE_COVERAGE_LIST_TYPE = new TypeReference<>() {
     };
     private static final Set<String> TECHNICAL_NODE_TYPES = Set.of("ENTRY", "EXIT", "NOOP", "JOIN");
+    private static final Set<String> JAVA_LANGUAGES = Set.of("JAVA");
 
     private final UserRepository userRepository;
     private final ProjectRepository projectRepository;
@@ -51,19 +53,17 @@ public class JavaCoverageService {
     private final AnalyzedFunctionRepository analyzedFunctionRepository;
     private final CoverageRunRepository coverageRunRepository;
     private final CodeAnalysisService codeAnalysisService;
-    private final CoverageSandboxRunner coverageSandboxRunner;
-    private final JaCoCoXmlParser jaCoCoXmlParser;
+    private final CoverageSandboxRunnerRegistry runnerRegistry;
     private final ObjectMapper objectMapper;
 
-    public JavaCoverageService(
+    public CoverageService(
             UserRepository userRepository,
             ProjectRepository projectRepository,
             SourceFileRepository sourceFileRepository,
             AnalyzedFunctionRepository analyzedFunctionRepository,
             CoverageRunRepository coverageRunRepository,
             CodeAnalysisService codeAnalysisService,
-            CoverageSandboxRunner coverageSandboxRunner,
-            JaCoCoXmlParser jaCoCoXmlParser,
+            CoverageSandboxRunnerRegistry runnerRegistry,
             ObjectMapper objectMapper) {
         this.userRepository = userRepository;
         this.projectRepository = projectRepository;
@@ -71,28 +71,37 @@ public class JavaCoverageService {
         this.analyzedFunctionRepository = analyzedFunctionRepository;
         this.coverageRunRepository = coverageRunRepository;
         this.codeAnalysisService = codeAnalysisService;
-        this.coverageSandboxRunner = coverageSandboxRunner;
-        this.jaCoCoXmlParser = jaCoCoXmlParser;
+        this.runnerRegistry = runnerRegistry;
         this.objectMapper = objectMapper;
     }
 
     @Transactional
-    public JavaFileCoverageResponse runJavaCoverage(Long projectId, String rawPath, String userEmail) {
-        codeAnalysisService.analyzeJavaFile(projectId, rawPath, userEmail);
+    public JavaFileCoverageResponse runCoverage(Long projectId, String rawPath, String userEmail) {
         SourceContext sourceContext = resolveSourceContext(projectId, rawPath, userEmail);
+        String language = sourceContext.sourceFile().getLanguage();
+
+        if (isJavaLanguage(language)) {
+            codeAnalysisService.analyzeJavaFile(projectId, rawPath, userEmail);
+            sourceContext = resolveSourceContext(projectId, rawPath, userEmail);
+        }
+
+        CoverageSandboxRunner runner = runnerRegistry.getRunner(language);
+        CoverageReportParser parser = runnerRegistry.getParser(language);
 
         CoverageRun coverageRun = new CoverageRun();
         coverageRun.setProjectId(projectId);
         coverageRun.setSourceFilePath(sourceContext.normalizedPath());
-        coverageRun.setLanguage(sourceContext.sourceFile().getLanguage());
-        coverageRun.setSourceHash(sourceContext.sourceFile().getAnalysisHash());
+        coverageRun.setLanguage(language);
+        coverageRun.setSourceHash(sourceContext.sourceFile().getAnalysisHash() != null
+                ? sourceContext.sourceFile().getAnalysisHash()
+                : "no-analysis");
         coverageRun.setStartedAt(LocalDateTime.now());
         coverageRun.setCommand("pending");
         coverageRun.setStatus(CoverageRunStatus.FAILED);
 
         List<CoverageLineStat> lineStats = List.of();
         try {
-            SandboxCoverageExecutionResult executionResult = coverageSandboxRunner.run(
+            SandboxCoverageExecutionResult executionResult = runner.run(
                     resolveWorkspaceRoot(sourceContext.project()),
                     sourceContext.normalizedPath());
             coverageRun.setStatus(executionResult.status());
@@ -104,15 +113,15 @@ public class JavaCoverageService {
 
             if (executionResult.status() == CoverageRunStatus.SUCCEEDED && executionResult.reportPath() != null) {
                 try {
-                    Map<String, List<CoverageLineStat>> coverageBySourceFile = jaCoCoXmlParser.parse(executionResult.reportPath());
-                    lineStats = resolveLineStats(coverageBySourceFile, sourceContext.normalizedPath());
+                    Map<String, List<CoverageLineStat>> coverageBySourceFile = parser.parse(executionResult.reportPath());
+                    lineStats = resolveLineStats(coverageBySourceFile, sourceContext.normalizedPath(), language);
                     coverageRun.setLineCoverageJson(writeJson(lineStats));
                 } finally {
                     Files.deleteIfExists(executionResult.reportPath());
                 }
             }
         } catch (IOException ex) {
-            throw new IllegalStateException("Unable to clean up JaCoCo XML report", ex);
+            throw new IllegalStateException("Unable to clean up coverage report", ex);
         } catch (RuntimeException ex) {
             coverageRun.setStatus(CoverageRunStatus.FAILED);
             coverageRun.setCommand("sandbox coverage run");
@@ -121,14 +130,19 @@ public class JavaCoverageService {
         }
 
         CoverageRun savedRun = coverageRunRepository.save(coverageRun);
-        List<AnalyzedFunction> functions = analyzedFunctionRepository
-                .findBySourceFile_IdOrderByStartLineAsc(sourceContext.sourceFile().getId());
 
         boolean overlayAvailable = savedRun.getStatus() == CoverageRunStatus.SUCCEEDED;
-        List<CoverageLineStat> effectiveLineStats = lineStats;
-        List<CoverageFunctionSummaryResponse> summaries = functions.stream()
-                .map(function -> buildCoverageFunctionSummary(function, effectiveLineStats, overlayAvailable))
-                .toList();
+        List<CoverageFunctionSummaryResponse> summaries;
+        if (isJavaLanguage(language)) {
+            List<AnalyzedFunction> functions = analyzedFunctionRepository
+                    .findBySourceFile_IdOrderByStartLineAsc(sourceContext.sourceFile().getId());
+            List<CoverageLineStat> effectiveLineStats = lineStats;
+            summaries = functions.stream()
+                    .map(function -> buildCoverageFunctionSummary(function, effectiveLineStats, overlayAvailable))
+                    .toList();
+        } else {
+            summaries = List.of();
+        }
 
         return new JavaFileCoverageResponse(
                 savedRun.getId(),
@@ -188,6 +202,10 @@ public class JavaCoverageService {
                 functionCoverage.missedLineCount(),
                 functionCoverage.coveredBranchCount(),
                 functionCoverage.missedBranchCount());
+    }
+
+    private boolean isJavaLanguage(String language) {
+        return language != null && JAVA_LANGUAGES.contains(language.trim().toUpperCase());
     }
 
     private CoverageFunctionSummaryResponse buildCoverageFunctionSummary(
@@ -268,10 +286,16 @@ public class JavaCoverageService {
         return new CoverageAggregate(status, coveredLineCount, missedLineCount, coveredBranchCount, missedBranchCount);
     }
 
-    private List<CoverageLineStat> resolveLineStats(Map<String, List<CoverageLineStat>> coverageBySourceFile, String normalizedPath) {
-        String expectedKey = toJacocoSourceKey(normalizedPath);
-        if (coverageBySourceFile.containsKey(expectedKey)) {
-            return coverageBySourceFile.get(expectedKey);
+    private List<CoverageLineStat> resolveLineStats(Map<String, List<CoverageLineStat>> coverageBySourceFile, String normalizedPath, String language) {
+        if (isJavaLanguage(language)) {
+            String expectedKey = toJacocoSourceKey(normalizedPath);
+            if (coverageBySourceFile.containsKey(expectedKey)) {
+                return coverageBySourceFile.get(expectedKey);
+            }
+        } else {
+            if (coverageBySourceFile.containsKey(normalizedPath)) {
+                return coverageBySourceFile.get(normalizedPath);
+            }
         }
 
         String fileName = Path.of(normalizedPath).getFileName().toString();
@@ -321,11 +345,8 @@ public class JavaCoverageService {
         SourceFile sourceFile = sourceFileRepository.findByProject_IdAndFilePath(projectId, normalizedPath)
                 .orElseThrow(() -> new NotFoundException("File not found in workspace"));
 
-        if (!"JAVA".equalsIgnoreCase(sourceFile.getLanguage())) {
-            throw new IllegalArgumentException("Only JAVA files are supported for coverage");
-        }
-        if (sourceFile.getAnalysisHash() == null || sourceFile.getAnalysisHash().isBlank()) {
-            throw new NotFoundException("No analysis found for file");
+        if (!runnerRegistry.isSupported(sourceFile.getLanguage())) {
+            throw new IllegalArgumentException("Coverage is not supported for language: " + sourceFile.getLanguage());
         }
         return new SourceContext(project, sourceFile, normalizedPath);
     }

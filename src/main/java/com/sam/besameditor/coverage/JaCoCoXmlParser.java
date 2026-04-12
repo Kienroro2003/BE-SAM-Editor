@@ -20,8 +20,9 @@ import java.util.List;
 import java.util.Map;
 
 @Component
-public class JaCoCoXmlParser {
+public class JaCoCoXmlParser implements CoverageReportParser {
 
+    @Override
     public Map<String, List<CoverageLineStat>> parse(Path xmlPath) {
         try (InputStream inputStream = Files.newInputStream(xmlPath)) {
             DocumentBuilder documentBuilder = createSecureDocumentBuilder();

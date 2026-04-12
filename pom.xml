@@ -139,6 +139,23 @@
             <version>7.1.0.202411261347-r</version>
         </dependency>
 
+        <!-- Tree-sitter (JS/TS/Python AST parsing for CFG analysis) -->
+        <dependency>
+            <groupId>io.github.bonede</groupId>
+            <artifactId>tree-sitter</artifactId>
+            <version>0.26.6</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.bonede</groupId>
+            <artifactId>tree-sitter-javascript</artifactId>
+            <version>0.25.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.bonede</groupId>
+            <artifactId>tree-sitter-typescript</artifactId>
+            <version>0.23.2</version>
+        </dependency>
+
         <!-- JWT Authentication -->
 <dependency>
     <groupId>io.jsonwebtoken</groupId>
