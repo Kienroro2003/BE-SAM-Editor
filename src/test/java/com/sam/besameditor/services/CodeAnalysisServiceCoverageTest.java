@@ -2,6 +2,7 @@ package com.sam.besameditor.services;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sam.besameditor.analysis.JavaSourceAnalyzer;
+import com.sam.besameditor.analysis.JsSourceAnalyzer;
 import com.sam.besameditor.dto.JavaFileAnalysisResponse;
 import com.sam.besameditor.exceptions.NotFoundException;
 import com.sam.besameditor.models.AnalyzedFunction;
@@ -78,6 +79,7 @@ class CodeAnalysisServiceCoverageTest {
                 analyzedFunctionRepository,
                 flowGraphDataRepository,
                 new JavaSourceAnalyzer(),
+                new JsSourceAnalyzer(),
                 cloudinaryWorkspaceStorageService,
                 new ObjectMapper(),
                 1_048_576L
@@ -267,7 +269,7 @@ class CodeAnalysisServiceCoverageTest {
                 () -> codeAnalysisService.analyzeJavaFile(17L, "src/Sample.txt", "user@test.com")
         );
 
-        assertEquals("Only JAVA files are supported for analysis", exception.getMessage());
+        assertEquals("File language TEXT does not match required language JAVA", exception.getMessage());
     }
 
     @Test
@@ -297,6 +299,7 @@ class CodeAnalysisServiceCoverageTest {
                 analyzedFunctionRepository,
                 flowGraphDataRepository,
                 new JavaSourceAnalyzer(),
+                new JsSourceAnalyzer(),
                 cloudinaryWorkspaceStorageService,
                 new ObjectMapper(),
                 4L

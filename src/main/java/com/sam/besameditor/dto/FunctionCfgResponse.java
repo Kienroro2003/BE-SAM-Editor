@@ -14,6 +14,12 @@ public class FunctionCfgResponse {
     private final List<String> exitNodeIds;
     private final List<AnalysisGraphNodeResponse> nodes;
     private final List<AnalysisGraphEdgeResponse> edges;
+    private final Long coverageRunId;
+    private final String coverageStatus;
+    private final Integer coveredLineCount;
+    private final Integer missedLineCount;
+    private final Integer coveredBranchCount;
+    private final Integer missedBranchCount;
 
     public FunctionCfgResponse(
             Long functionId,
@@ -26,6 +32,42 @@ public class FunctionCfgResponse {
             List<String> exitNodeIds,
             List<AnalysisGraphNodeResponse> nodes,
             List<AnalysisGraphEdgeResponse> edges) {
+        this(
+                functionId,
+                functionName,
+                signature,
+                startLine,
+                endLine,
+                cyclomaticComplexity,
+                entryNodeId,
+                exitNodeIds,
+                nodes,
+                edges,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    public FunctionCfgResponse(
+            Long functionId,
+            String functionName,
+            String signature,
+            int startLine,
+            int endLine,
+            int cyclomaticComplexity,
+            String entryNodeId,
+            List<String> exitNodeIds,
+            List<AnalysisGraphNodeResponse> nodes,
+            List<AnalysisGraphEdgeResponse> edges,
+            Long coverageRunId,
+            String coverageStatus,
+            Integer coveredLineCount,
+            Integer missedLineCount,
+            Integer coveredBranchCount,
+            Integer missedBranchCount) {
         this.functionId = functionId;
         this.functionName = functionName;
         this.signature = signature;
@@ -36,6 +78,12 @@ public class FunctionCfgResponse {
         this.exitNodeIds = exitNodeIds;
         this.nodes = nodes;
         this.edges = edges;
+        this.coverageRunId = coverageRunId;
+        this.coverageStatus = coverageStatus;
+        this.coveredLineCount = coveredLineCount;
+        this.missedLineCount = missedLineCount;
+        this.coveredBranchCount = coveredBranchCount;
+        this.missedBranchCount = missedBranchCount;
     }
 
     public Long getFunctionId() {
@@ -76,5 +124,29 @@ public class FunctionCfgResponse {
 
     public List<AnalysisGraphEdgeResponse> getEdges() {
         return edges;
+    }
+
+    public Long getCoverageRunId() {
+        return coverageRunId;
+    }
+
+    public String getCoverageStatus() {
+        return coverageStatus;
+    }
+
+    public Integer getCoveredLineCount() {
+        return coveredLineCount;
+    }
+
+    public Integer getMissedLineCount() {
+        return missedLineCount;
+    }
+
+    public Integer getCoveredBranchCount() {
+        return coveredBranchCount;
+    }
+
+    public Integer getMissedBranchCount() {
+        return missedBranchCount;
     }
 }

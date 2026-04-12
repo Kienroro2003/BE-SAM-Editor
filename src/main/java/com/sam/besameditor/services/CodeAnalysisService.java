@@ -8,6 +8,7 @@ import com.sam.besameditor.analysis.GraphEdgeDraft;
 import com.sam.besameditor.analysis.GraphNodeDraft;
 import com.sam.besameditor.analysis.JavaFileAnalysisResult;
 import com.sam.besameditor.analysis.JavaSourceAnalyzer;
+import com.sam.besameditor.analysis.JsSourceAnalyzer;
 import com.sam.besameditor.dto.AnalysisGraphEdgeResponse;
 import com.sam.besameditor.dto.AnalysisGraphNodeResponse;
 import com.sam.besameditor.dto.FunctionAnalysisSummaryResponse;
@@ -63,6 +64,7 @@ public class CodeAnalysisService {
     private final AnalyzedFunctionRepository analyzedFunctionRepository;
     private final FlowGraphDataRepository flowGraphDataRepository;
     private final JavaSourceAnalyzer javaSourceAnalyzer;
+    private final JsSourceAnalyzer jsSourceAnalyzer;
     private final CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService;
     private final ObjectMapper objectMapper;
     private final long fileContentMaxBytes;
@@ -74,6 +76,7 @@ public class CodeAnalysisService {
             AnalyzedFunctionRepository analyzedFunctionRepository,
             FlowGraphDataRepository flowGraphDataRepository,
             JavaSourceAnalyzer javaSourceAnalyzer,
+            JsSourceAnalyzer jsSourceAnalyzer,
             CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService,
             ObjectMapper objectMapper,
             @Value("${app.workspace.file-content-max-bytes:1048576}") long fileContentMaxBytes) {
@@ -83,14 +86,28 @@ public class CodeAnalysisService {
         this.analyzedFunctionRepository = analyzedFunctionRepository;
         this.flowGraphDataRepository = flowGraphDataRepository;
         this.javaSourceAnalyzer = javaSourceAnalyzer;
+        this.jsSourceAnalyzer = jsSourceAnalyzer;
         this.cloudinaryWorkspaceStorageService = cloudinaryWorkspaceStorageService;
         this.objectMapper = objectMapper;
         this.fileContentMaxBytes = fileContentMaxBytes;
     }
 
+    private static final List<String> SUPPORTED_ANALYSIS_LANGUAGES = List.of(
+            "JAVA", "JAVASCRIPT", "TYPESCRIPT", "JS", "TS", "JSX", "TSX");
+
     @Transactional
     public JavaFileAnalysisResponse analyzeJavaFile(Long projectId, String rawPath, String userEmail) {
-        SourceContext sourceContext = resolveSourceContext(projectId, rawPath, userEmail);
+        return analyzeFile(projectId, rawPath, userEmail, "JAVA");
+    }
+
+    @Transactional
+    public JavaFileAnalysisResponse analyzeJsFile(Long projectId, String rawPath, String userEmail) {
+        return analyzeFile(projectId, rawPath, userEmail, null);
+    }
+
+    @Transactional
+    public JavaFileAnalysisResponse analyzeFile(Long projectId, String rawPath, String userEmail, String requiredLanguage) {
+        SourceContext sourceContext = resolveSourceContext(projectId, rawPath, userEmail, requiredLanguage);
         String currentHash = hashContent(sourceContext.content());
         List<AnalyzedFunction> cachedFunctions = analyzedFunctionRepository
                 .findBySourceFile_IdOrderByStartLineAsc(sourceContext.sourceFile().getId());
@@ -105,7 +122,10 @@ public class CodeAnalysisService {
                     cachedFunctions);
         }
 
-        JavaFileAnalysisResult analysisResult = javaSourceAnalyzer.analyze(sourceContext.normalizedPath(), sourceContext.content());
+        JavaFileAnalysisResult analysisResult = runAnalysis(
+                sourceContext.sourceFile().getLanguage(),
+                sourceContext.normalizedPath(),
+                sourceContext.content());
         List<AnalyzedFunction> savedFunctions = persistAnalysis(sourceContext.sourceFile(), analysisResult, currentHash);
 
         return buildAnalysisResponse(
@@ -118,7 +138,7 @@ public class CodeAnalysisService {
 
     @Transactional(readOnly = true)
     public JavaFileAnalysisResponse getFunctionSummaries(Long projectId, String rawPath, String userEmail) {
-        SourceContext sourceContext = resolveSourceContext(projectId, rawPath, userEmail);
+        SourceContext sourceContext = resolveSourceContext(projectId, rawPath, userEmail, null);
         ensureFreshAnalysisCache(sourceContext.sourceFile(), sourceContext.content());
 
         List<AnalyzedFunction> cachedFunctions = analyzedFunctionRepository
@@ -261,7 +281,7 @@ public class CodeAnalysisService {
         analyzedFunctionRepository.deleteBySourceFile_Id(sourceFileId);
     }
 
-    private SourceContext resolveSourceContext(Long projectId, String rawPath, String userEmail) {
+    private SourceContext resolveSourceContext(Long projectId, String rawPath, String userEmail, String requiredLanguage) {
         User user = findUserByEmail(userEmail);
         Project project = projectRepository.findByIdAndUser_Id(projectId, user.getId())
                 .orElseThrow(() -> new NotFoundException("Workspace not found"));
@@ -270,12 +290,26 @@ public class CodeAnalysisService {
         SourceFile sourceFile = sourceFileRepository.findByProject_IdAndFilePath(projectId, normalizedPath)
                 .orElseThrow(() -> new NotFoundException("File not found in workspace"));
 
-        if (!"JAVA".equalsIgnoreCase(sourceFile.getLanguage())) {
-            throw new IllegalArgumentException("Only JAVA files are supported for analysis");
+        String language = sourceFile.getLanguage().toUpperCase();
+        if (requiredLanguage != null && !requiredLanguage.equalsIgnoreCase(language)) {
+            throw new IllegalArgumentException("File language " + language + " does not match required language " + requiredLanguage);
+        }
+        if (SUPPORTED_ANALYSIS_LANGUAGES.stream().noneMatch(lang -> lang.equalsIgnoreCase(language))) {
+            throw new IllegalArgumentException("Language " + language + " is not supported for analysis. Supported: " + SUPPORTED_ANALYSIS_LANGUAGES);
         }
 
         String content = readSourceContent(project, normalizedPath);
         return new SourceContext(project, sourceFile, normalizedPath, content);
+    }
+
+    private JavaFileAnalysisResult runAnalysis(String language, String sourcePath, String sourceCode) {
+        String upperLang = language.toUpperCase();
+        return switch (upperLang) {
+            case "JAVA" -> javaSourceAnalyzer.analyze(sourcePath, sourceCode);
+            case "JAVASCRIPT", "JS", "JSX", "TYPESCRIPT", "TS", "TSX" ->
+                    jsSourceAnalyzer.analyze(sourcePath, sourceCode, upperLang);
+            default -> throw new IllegalArgumentException("Unsupported analysis language: " + language);
+        };
     }
 
     private String readSourceContent(Project project, String normalizedPath) {
