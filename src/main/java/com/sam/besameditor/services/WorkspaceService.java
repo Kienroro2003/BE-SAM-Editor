@@ -109,17 +109,14 @@ public class WorkspaceService {
                 user.getId(),
                 savedProject.getId(),
                 repoDescriptor.cloneUrl());
-        savedProject.setStoragePath(storagePath);
 
         CloudinaryWorkspaceStorageService.CloudinaryUploadResult cloudinaryUploadResult =
-                cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(user.getId(), savedProject.getId(), Path.of(storagePath));
-        if (cloudinaryUploadResult != null) {
-            savedProject.setCloudinaryPublicId(cloudinaryUploadResult.publicId());
-            savedProject.setCloudinaryUrl(cloudinaryUploadResult.secureUrl());
-            deleteDirectoryIfExistsQuietly(Path.of(storagePath));
-            savedProject.setStoragePath(null);
-        }
+                uploadWorkspaceArchiveOrThrow(user.getId(), savedProject.getId(), Path.of(storagePath));
+        savedProject.setCloudinaryPublicId(cloudinaryUploadResult.publicId());
+        savedProject.setCloudinaryUrl(cloudinaryUploadResult.secureUrl());
+        savedProject.setStoragePath(null);
 
+        deleteDirectoryIfExistsQuietly(Path.of(storagePath));
         projectRepository.save(savedProject);
 
         persistSourceFiles(savedProject, snapshots);
@@ -150,15 +147,14 @@ public class WorkspaceService {
                 user.getId(),
                 savedProject.getId(),
                 localFolderDescriptor.path());
-        savedProject.setStoragePath(storagePath);
 
         CloudinaryWorkspaceStorageService.CloudinaryUploadResult cloudinaryUploadResult =
-                cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(user.getId(), savedProject.getId(), Path.of(storagePath));
-        if (cloudinaryUploadResult != null) {
-            savedProject.setCloudinaryPublicId(cloudinaryUploadResult.publicId());
-            savedProject.setCloudinaryUrl(cloudinaryUploadResult.secureUrl());
-        }
+                uploadWorkspaceArchiveOrThrow(user.getId(), savedProject.getId(), Path.of(storagePath));
+        savedProject.setCloudinaryPublicId(cloudinaryUploadResult.publicId());
+        savedProject.setCloudinaryUrl(cloudinaryUploadResult.secureUrl());
+        savedProject.setStoragePath(null);
 
+        deleteDirectoryIfExistsQuietly(Path.of(storagePath));
         projectRepository.save(savedProject);
 
         persistSourceFiles(savedProject, localImportResult.snapshots());
@@ -189,15 +185,14 @@ public class WorkspaceService {
                 user.getId(),
                 savedProject.getId(),
                 zipFile);
-        savedProject.setStoragePath(storagePath);
 
         CloudinaryWorkspaceStorageService.CloudinaryUploadResult cloudinaryUploadResult =
-                cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(user.getId(), savedProject.getId(), Path.of(storagePath));
-        if (cloudinaryUploadResult != null) {
-            savedProject.setCloudinaryPublicId(cloudinaryUploadResult.publicId());
-            savedProject.setCloudinaryUrl(cloudinaryUploadResult.secureUrl());
-        }
+                uploadWorkspaceArchiveOrThrow(user.getId(), savedProject.getId(), Path.of(storagePath));
+        savedProject.setCloudinaryPublicId(cloudinaryUploadResult.publicId());
+        savedProject.setCloudinaryUrl(cloudinaryUploadResult.secureUrl());
+        savedProject.setStoragePath(null);
 
+        deleteDirectoryIfExistsQuietly(Path.of(storagePath));
         projectRepository.save(savedProject);
 
         persistSourceFiles(savedProject, localImportResult.snapshots());
@@ -342,25 +337,31 @@ public class WorkspaceService {
         Project project = projectRepository.findByIdAndUser_Id(projectId, user.getId())
                 .orElseThrow(() -> new NotFoundException("Workspace not found"));
 
-        Path workspaceRoot = resolveWorkspaceRoot(project);
-        if (workspaceRoot == null) {
-            throw new IllegalArgumentException("Delete folder is not supported in cloud-only storage mode");
+        if (!hasCloudinaryArchive(project)) {
+            throw new NotFoundException("Workspace source not found on cloud storage");
         }
 
         Path relativeFolderPath = resolveRelativeFolderPath(path);
-        Path targetFolder = workspaceRoot.resolve(relativeFolderPath).normalize();
-
-        if (!targetFolder.startsWith(workspaceRoot)) {
-            throw new IllegalArgumentException("Invalid folder path");
-        }
-        if (!Files.exists(targetFolder) || !Files.isDirectory(targetFolder)) {
-            throw new NotFoundException("Folder not found in workspace");
-        }
-
-        deleteDirectoryRecursively(targetFolder);
-
         String normalizedFolderPath = normalizePath(relativeFolderPath.toString());
         String folderPrefix = normalizedFolderPath + "/";
+
+        CloudinaryWorkspaceStorageService.CloudinaryUploadResult uploadResult =
+                cloudinaryWorkspaceStorageService.deleteFolderInArchive(
+                        user.getId(),
+                        project.getId(),
+                        project.getCloudinaryPublicId(),
+                        project.getCloudinaryUrl(),
+                        normalizedFolderPath);
+
+        String previousPublicId = project.getCloudinaryPublicId();
+        project.setCloudinaryPublicId(uploadResult.publicId());
+        project.setCloudinaryUrl(uploadResult.secureUrl());
+        project.setStoragePath(null);
+        projectRepository.save(project);
+
+        if (previousPublicId != null && !previousPublicId.isBlank()) {
+            cloudinaryWorkspaceStorageService.deleteWorkspaceArchive(previousPublicId);
+        }
 
         analyzedFunctionRepository.deleteBySourceFile_Project_IdAndSourceFile_FilePath(projectId, normalizedFolderPath);
         analyzedFunctionRepository.deleteBySourceFile_Project_IdAndSourceFile_FilePathStartingWith(projectId, folderPrefix);
@@ -953,6 +954,20 @@ public class WorkspaceService {
     private boolean hasCloudinaryArchive(Project project) {
         return (project.getCloudinaryPublicId() != null && !project.getCloudinaryPublicId().isBlank())
                 || (project.getCloudinaryUrl() != null && !project.getCloudinaryUrl().isBlank());
+    }
+
+    private CloudinaryWorkspaceStorageService.CloudinaryUploadResult uploadWorkspaceArchiveOrThrow(
+            Long userId,
+            Long projectId,
+            Path workspaceRoot) {
+        CloudinaryWorkspaceStorageService.CloudinaryUploadResult uploadResult =
+                cloudinaryWorkspaceStorageService.uploadWorkspaceArchive(userId, projectId, workspaceRoot);
+        if (uploadResult == null) {
+            throw new WorkspaceStorageException(
+                    "Cloudinary storage is required but currently disabled.",
+                    new IllegalStateException("cloudinary-disabled"));
+        }
+        return uploadResult;
     }
 
     private void deleteTempFileIfExists(Path path) {

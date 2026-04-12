@@ -167,6 +167,69 @@ public class CloudinaryWorkspaceStorageService {
         }
     }
 
+    public CloudinaryUploadResult deleteFolderInArchive(
+            Long userId,
+            Long projectId,
+            String currentPublicId,
+            String currentCloudinaryUrl,
+            String targetFolderPath) {
+        if (!enabled) {
+            throw new WorkspaceStorageException("Cloudinary storage is disabled", new IllegalStateException("disabled"));
+        }
+
+        String downloadUrl = resolveDownloadUrl(currentPublicId, currentCloudinaryUrl);
+        if (downloadUrl == null || downloadUrl.isBlank()) {
+            throw new NotFoundException("Workspace source not found on cloud storage");
+        }
+
+        Path sourceZip = null;
+        Path patchedZip = null;
+        try {
+            sourceZip = Files.createTempFile("workspace-cloud-source-", ".zip");
+            patchedZip = Files.createTempFile("workspace-cloud-folder-deleted-", ".zip");
+            downloadToTempFile(downloadUrl, sourceZip);
+
+            String normalizedFolder = normalizeArchiveEntryName(targetFolderPath);
+            int deletedEntries = rewriteZipWithoutFolder(sourceZip, patchedZip, normalizedFolder);
+            if (deletedEntries == 0) {
+                throw new NotFoundException("Folder not found in workspace");
+            }
+
+            String nextPublicId = "user-" + userId + "/project-" + projectId + "-" + UUID.randomUUID();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> response = cloudinary.uploader().upload(
+                    patchedZip.toFile(),
+                    ObjectUtils.asMap(
+                            "resource_type", "raw",
+                            "folder", targetFolder,
+                            "public_id", nextPublicId,
+                            "overwrite", true));
+
+            String uploadedPublicId = (String) response.get("public_id");
+            String secureUrl = (String) response.get("secure_url");
+            return new CloudinaryUploadResult(uploadedPublicId, secureUrl);
+        } catch (IOException ex) {
+            throw new WorkspaceStorageException("Failed to delete folder from workspace archive", ex);
+        } catch (Exception ex) {
+            throw new WorkspaceStorageException("Failed to upload patched workspace archive", ex);
+        } finally {
+            if (sourceZip != null) {
+                try {
+                    Files.deleteIfExists(sourceZip);
+                } catch (IOException ignored) {
+                    // best effort cleanup
+                }
+            }
+            if (patchedZip != null) {
+                try {
+                    Files.deleteIfExists(patchedZip);
+                } catch (IOException ignored) {
+                    // best effort cleanup
+                }
+            }
+        }
+    }
+
     public byte[] readFileFromArchive(String publicId, String cloudinaryUrl, String filePath, long maxSizeBytes) {
         if (!enabled) {
             throw new WorkspaceStorageException("Cloudinary storage is disabled", new IllegalStateException("disabled"));
@@ -299,6 +362,48 @@ public class CloudinaryWorkspaceStorageService {
                 throw new NotFoundException("File not found in workspace");
             }
         }
+    }
+
+    private int rewriteZipWithoutFolder(Path sourceZip, Path patchedZip, String targetFolderPath) throws IOException {
+        int deletedEntries = 0;
+        byte[] buffer = new byte[8192];
+        String folderPrefix = targetFolderPath + "/";
+
+        try (InputStream in = Files.newInputStream(sourceZip);
+             ZipInputStream zis = new ZipInputStream(in);
+             ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(patchedZip))) {
+
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                String entryName = normalizeArchiveEntryName(entry.getName());
+                if (entryName.isBlank()) {
+                    zis.closeEntry();
+                    continue;
+                }
+
+                boolean shouldDelete = entryName.equals(targetFolderPath) || entryName.startsWith(folderPrefix);
+                if (shouldDelete) {
+                    deletedEntries++;
+                    zis.closeEntry();
+                    continue;
+                }
+
+                ZipEntry outputEntry = new ZipEntry(entryName);
+                zos.putNextEntry(outputEntry);
+
+                if (!entry.isDirectory()) {
+                    int read;
+                    while ((read = zis.read(buffer)) != -1) {
+                        zos.write(buffer, 0, read);
+                    }
+                }
+
+                zos.closeEntry();
+                zis.closeEntry();
+            }
+        }
+
+        return deletedEntries;
     }
 
     private String resolveDownloadUrl(String publicId, String cloudinaryUrl) {

@@ -59,6 +59,8 @@ class WorkspaceServicePrivateCoverageTest {
     private GithubRepositoryTreeClient githubRepositoryTreeClient;
     @Mock
     private WorkspaceSourceStorageService workspaceSourceStorageService;
+    @Mock
+    private CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService;
 
     @TempDir
     Path tempDir;
@@ -75,6 +77,7 @@ class WorkspaceServicePrivateCoverageTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 128L,
                 32L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
@@ -255,6 +258,7 @@ class WorkspaceServicePrivateCoverageTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 128L,
                 4L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"

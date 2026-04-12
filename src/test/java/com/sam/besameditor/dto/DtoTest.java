@@ -159,13 +159,14 @@ class DtoTest {
                 "repo",
                 com.sam.besameditor.models.ProjectSourceType.LOCAL_FOLDER,
                 "file:///tmp/repo",
+                null,
                 createdAt,
                 updatedAt
         );
         WorkspaceFileContentResponse content =
                 new WorkspaceFileContentResponse(11L, "src/App.java", "JAVA", "class App {}", 12L);
         ImportGithubWorkspaceResponse importResponse =
-                new ImportGithubWorkspaceResponse(11L, "repo", "https://github.com/openai/repo", 2, 32L);
+                new ImportGithubWorkspaceResponse(11L, "repo", "https://github.com/openai/repo", 2, 32L, null);
         DeleteWorkspaceResponse deleteWorkspace = new DeleteWorkspaceResponse(11L, 2, "deleted");
         DeleteWorkspaceFolderResponse deleteFolder =
                 new DeleteWorkspaceFolderResponse(11L, "src", 1, "deleted");

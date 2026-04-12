@@ -56,6 +56,8 @@ class WorkspaceServiceTest {
     private GithubRepositoryTreeClient githubRepositoryTreeClient;
     @Mock
     private WorkspaceSourceStorageService workspaceSourceStorageService;
+    @Mock
+    private CloudinaryWorkspaceStorageService cloudinaryWorkspaceStorageService;
 
     @TempDir
     Path tempDir;
@@ -72,6 +74,7 @@ class WorkspaceServiceTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 15_728_640L,
                 1_048_576L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
@@ -191,6 +194,7 @@ class WorkspaceServiceTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 10L,
                 1_048_576L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
@@ -324,6 +328,7 @@ class WorkspaceServiceTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 10L,
                 1_048_576L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"
@@ -482,6 +487,7 @@ class WorkspaceServiceTest {
                 flowGraphDataRepository,
                 githubRepositoryTreeClient,
                 workspaceSourceStorageService,
+                cloudinaryWorkspaceStorageService,
                 15_728_640L,
                 10L,
                 ".git,node_modules,target,dist,build,.idea,.vscode"

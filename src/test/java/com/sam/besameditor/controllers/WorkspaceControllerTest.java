@@ -42,7 +42,7 @@ class WorkspaceControllerTest {
         when(authentication.getName()).thenReturn("user@test.com");
 
         ImportGithubWorkspaceResponse serviceResponse =
-                new ImportGithubWorkspaceResponse(1L, "repo", "https://github.com/owner/repo", 2, 30L);
+                new ImportGithubWorkspaceResponse(1L, "repo", "https://github.com/owner/repo", 2, 30L, null);
         when(workspaceService.importFromGithub("https://github.com/owner/repo", "user@test.com"))
                 .thenReturn(serviceResponse);
 
@@ -63,7 +63,7 @@ class WorkspaceControllerTest {
                 new MockMultipartFile("file", "sample-workspace.zip", "application/zip", new byte[]{1, 2, 3});
 
         ImportGithubWorkspaceResponse serviceResponse =
-                new ImportGithubWorkspaceResponse(5L, "sample-workspace", "upload://sample-workspace.zip", 3, 120L);
+                new ImportGithubWorkspaceResponse(5L, "sample-workspace", "upload://sample-workspace.zip", 3, 120L, null);
         when(workspaceService.importFromZip(any(), any(), any()))
                 .thenReturn(serviceResponse);
 
@@ -86,6 +86,7 @@ class WorkspaceControllerTest {
                 "repo",
                 ProjectSourceType.GITHUB,
                 "https://github.com/owner/repo",
+                null,
                 LocalDateTime.now(),
                 LocalDateTime.now());
 
