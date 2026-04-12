@@ -2,19 +2,22 @@ package com.sam.besameditor.services;
 
 import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
+import com.sam.besameditor.exceptions.NotFoundException;
+import com.sam.besameditor.exceptions.WorkspacePayloadTooLargeException;
 import com.sam.besameditor.exceptions.WorkspaceStorageException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
-import java.util.Enumeration;
 import java.util.Map;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
@@ -103,14 +106,166 @@ public class CloudinaryWorkspaceStorageService {
         return enabled;
     }
 
+    public CloudinaryUploadResult patchFileInArchive(
+            Long userId,
+            Long projectId,
+            String currentPublicId,
+            String currentCloudinaryUrl,
+            String targetPath,
+            String content) {
+        if (!enabled) {
+            throw new WorkspaceStorageException("Cloudinary storage is disabled", new IllegalStateException("disabled"));
+        }
+
+        String downloadUrl = resolveDownloadUrl(currentPublicId, currentCloudinaryUrl);
+        if (downloadUrl == null || downloadUrl.isBlank()) {
+            throw new NotFoundException("Workspace source not found on cloud storage");
+        }
+
+        Path sourceZip = null;
+        Path patchedZip = null;
+        try {
+            sourceZip = Files.createTempFile("workspace-cloud-source-", ".zip");
+            patchedZip = Files.createTempFile("workspace-cloud-patched-", ".zip");
+            downloadToTempFile(downloadUrl, sourceZip);
+
+            String normalizedTargetPath = normalizeArchiveEntryName(targetPath);
+            rewriteZipWithPatchedFile(sourceZip, patchedZip, normalizedTargetPath, content);
+
+            String nextPublicId = "user-" + userId + "/project-" + projectId + "-" + UUID.randomUUID();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> response = cloudinary.uploader().upload(
+                    patchedZip.toFile(),
+                    ObjectUtils.asMap(
+                            "resource_type", "raw",
+                            "folder", targetFolder,
+                            "public_id", nextPublicId,
+                            "overwrite", true));
+
+            String uploadedPublicId = (String) response.get("public_id");
+            String secureUrl = (String) response.get("secure_url");
+            return new CloudinaryUploadResult(uploadedPublicId, secureUrl);
+        } catch (IOException ex) {
+            throw new WorkspaceStorageException("Failed to patch workspace archive", ex);
+        } catch (Exception ex) {
+            throw new WorkspaceStorageException("Failed to upload patched workspace archive", ex);
+        } finally {
+            if (sourceZip != null) {
+                try {
+                    Files.deleteIfExists(sourceZip);
+                } catch (IOException ignored) {
+                    // best effort cleanup
+                }
+            }
+            if (patchedZip != null) {
+                try {
+                    Files.deleteIfExists(patchedZip);
+                } catch (IOException ignored) {
+                    // best effort cleanup
+                }
+            }
+        }
+    }
+
+    public CloudinaryUploadResult deleteFolderInArchive(
+            Long userId,
+            Long projectId,
+            String currentPublicId,
+            String currentCloudinaryUrl,
+            String targetFolderPath) {
+        if (!enabled) {
+            throw new WorkspaceStorageException("Cloudinary storage is disabled", new IllegalStateException("disabled"));
+        }
+
+        String downloadUrl = resolveDownloadUrl(currentPublicId, currentCloudinaryUrl);
+        if (downloadUrl == null || downloadUrl.isBlank()) {
+            throw new NotFoundException("Workspace source not found on cloud storage");
+        }
+
+        Path sourceZip = null;
+        Path patchedZip = null;
+        try {
+            sourceZip = Files.createTempFile("workspace-cloud-source-", ".zip");
+            patchedZip = Files.createTempFile("workspace-cloud-folder-deleted-", ".zip");
+            downloadToTempFile(downloadUrl, sourceZip);
+
+            String normalizedFolder = normalizeArchiveEntryName(targetFolderPath);
+            int deletedEntries = rewriteZipWithoutFolder(sourceZip, patchedZip, normalizedFolder);
+            if (deletedEntries == 0) {
+                throw new NotFoundException("Folder not found in workspace");
+            }
+
+            String nextPublicId = "user-" + userId + "/project-" + projectId + "-" + UUID.randomUUID();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> response = cloudinary.uploader().upload(
+                    patchedZip.toFile(),
+                    ObjectUtils.asMap(
+                            "resource_type", "raw",
+                            "folder", targetFolder,
+                            "public_id", nextPublicId,
+                            "overwrite", true));
+
+            String uploadedPublicId = (String) response.get("public_id");
+            String secureUrl = (String) response.get("secure_url");
+            return new CloudinaryUploadResult(uploadedPublicId, secureUrl);
+        } catch (IOException ex) {
+            throw new WorkspaceStorageException("Failed to delete folder from workspace archive", ex);
+        } catch (Exception ex) {
+            throw new WorkspaceStorageException("Failed to upload patched workspace archive", ex);
+        } finally {
+            if (sourceZip != null) {
+                try {
+                    Files.deleteIfExists(sourceZip);
+                } catch (IOException ignored) {
+                    // best effort cleanup
+                }
+            }
+            if (patchedZip != null) {
+                try {
+                    Files.deleteIfExists(patchedZip);
+                } catch (IOException ignored) {
+                    // best effort cleanup
+                }
+            }
+        }
+    }
+
+    public byte[] readFileFromArchive(String publicId, String cloudinaryUrl, String filePath, long maxSizeBytes) {
+        if (!enabled) {
+            throw new WorkspaceStorageException("Cloudinary storage is disabled", new IllegalStateException("disabled"));
+        }
+
+        String downloadUrl = resolveDownloadUrl(publicId, cloudinaryUrl);
+        if (downloadUrl == null || downloadUrl.isBlank()) {
+            throw new NotFoundException("Workspace source not found on cloud storage");
+        }
+
+        Path tempZip = null;
+        try {
+            tempZip = Files.createTempFile("workspace-cloud-read-", ".zip");
+            downloadToTempFile(downloadUrl, tempZip);
+            return extractFileContentFromZip(tempZip, normalizeArchiveEntryName(filePath), maxSizeBytes);
+        } catch (IOException ex) {
+            throw new WorkspaceStorageException("Failed to read workspace archive from Cloudinary", ex);
+        } finally {
+            if (tempZip != null) {
+                try {
+                    Files.deleteIfExists(tempZip);
+                } catch (IOException ignored) {
+                    // best effort cleanup
+                }
+            }
+        }
+    }
+
     public void restoreWorkspaceArchive(Path targetDir, String publicId, String cloudinaryUrl) {
         if (!enabled) {
-            throw new WorkspaceStorageException("Cloudinary restore is disabled", new IllegalStateException("Cloudinary disabled"));
+            throw new WorkspaceStorageException("Cloudinary restore is disabled", new IllegalStateException("disabled"));
         }
 
         String signedOrPublicUrl = resolveDownloadUrl(publicId, cloudinaryUrl);
         if (signedOrPublicUrl == null || signedOrPublicUrl.isBlank()) {
-            throw new WorkspaceStorageException("Cloudinary archive reference is missing", new IllegalArgumentException("Missing archive reference"));
+            throw new WorkspaceStorageException("Cloudinary archive reference is missing", new IllegalArgumentException("missing cloudinary reference"));
         }
 
         Path tempZip = null;
@@ -133,6 +288,122 @@ public class CloudinaryWorkspaceStorageService {
                 }
             }
         }
+    }
+
+    private byte[] extractFileContentFromZip(Path zipFile, String targetPath, long maxSizeBytes) throws IOException {
+        try (InputStream in = Files.newInputStream(zipFile);
+             ZipInputStream zis = new ZipInputStream(in)) {
+
+            ZipEntry entry;
+            byte[] buffer = new byte[8192];
+            while ((entry = zis.getNextEntry()) != null) {
+                String entryName = normalizeArchiveEntryName(entry.getName());
+                if (entry.isDirectory() || !entryName.equals(targetPath)) {
+                    zis.closeEntry();
+                    continue;
+                }
+
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                long totalRead = 0L;
+                int read;
+                while ((read = zis.read(buffer)) != -1) {
+                    totalRead += read;
+                    if (totalRead > maxSizeBytes) {
+                        throw new WorkspacePayloadTooLargeException(
+                                "Workspace file content exceeds limit of " + maxSizeBytes + " bytes.");
+                    }
+                    out.write(buffer, 0, read);
+                }
+                zis.closeEntry();
+                return out.toByteArray();
+            }
+        }
+
+        throw new NotFoundException("File not found in workspace");
+    }
+
+    private void rewriteZipWithPatchedFile(Path sourceZip, Path patchedZip, String targetPath, String content) throws IOException {
+        boolean replaced = false;
+        byte[] buffer = new byte[8192];
+        byte[] replacement = content.getBytes(StandardCharsets.UTF_8);
+
+        try (InputStream in = Files.newInputStream(sourceZip);
+             ZipInputStream zis = new ZipInputStream(in);
+             ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(patchedZip))) {
+
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                String entryName = normalizeArchiveEntryName(entry.getName());
+                if (entryName.isBlank()) {
+                    zis.closeEntry();
+                    continue;
+                }
+
+                ZipEntry outputEntry = new ZipEntry(entryName);
+                zos.putNextEntry(outputEntry);
+
+                if (!entry.isDirectory()) {
+                    if (entryName.equals(targetPath)) {
+                        zos.write(replacement);
+                        replaced = true;
+                    } else {
+                        int read;
+                        while ((read = zis.read(buffer)) != -1) {
+                            zos.write(buffer, 0, read);
+                        }
+                    }
+                }
+
+                zos.closeEntry();
+                zis.closeEntry();
+            }
+
+            if (!replaced) {
+                throw new NotFoundException("File not found in workspace");
+            }
+        }
+    }
+
+    private int rewriteZipWithoutFolder(Path sourceZip, Path patchedZip, String targetFolderPath) throws IOException {
+        int deletedEntries = 0;
+        byte[] buffer = new byte[8192];
+        String folderPrefix = targetFolderPath + "/";
+
+        try (InputStream in = Files.newInputStream(sourceZip);
+             ZipInputStream zis = new ZipInputStream(in);
+             ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(patchedZip))) {
+
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                String entryName = normalizeArchiveEntryName(entry.getName());
+                if (entryName.isBlank()) {
+                    zis.closeEntry();
+                    continue;
+                }
+
+                boolean shouldDelete = entryName.equals(targetFolderPath) || entryName.startsWith(folderPrefix);
+                if (shouldDelete) {
+                    deletedEntries++;
+                    zis.closeEntry();
+                    continue;
+                }
+
+                ZipEntry outputEntry = new ZipEntry(entryName);
+                zos.putNextEntry(outputEntry);
+
+                if (!entry.isDirectory()) {
+                    int read;
+                    while ((read = zis.read(buffer)) != -1) {
+                        zos.write(buffer, 0, read);
+                    }
+                }
+
+                zos.closeEntry();
+                zis.closeEntry();
+            }
+        }
+
+        return deletedEntries;
     }
 
     private String resolveDownloadUrl(String publicId, String cloudinaryUrl) {
