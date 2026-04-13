@@ -4,6 +4,7 @@ import com.sam.besameditor.dto.AuthResponse;
 import com.sam.besameditor.dto.LoginRequest;
 import com.sam.besameditor.dto.RegisterRequest;
 import com.sam.besameditor.dto.VerifyOtpRequest;
+import com.sam.besameditor.exceptions.ConflictException;
 import com.sam.besameditor.models.AuthProvider;
 import com.sam.besameditor.models.EmailVerificationCode;
 import com.sam.besameditor.models.RefreshToken;
@@ -75,10 +76,10 @@ class AuthServiceTest {
         RegisterRequest request = new RegisterRequest();
         request.setEmail("test@test.com");
         request.setFullName("Test User");
-        request.setPassword("password123");
+        request.setPassword("P@ssw0rd123");
 
         when(userRepository.findByEmail("test@test.com")).thenReturn(Optional.empty());
-        when(passwordEncoder.encode("password123")).thenReturn("encoded_pass");
+        when(passwordEncoder.encode("P@ssw0rd123")).thenReturn("encoded_pass");
 
         // Act
         Map<String, String> response = authService.register(request);
@@ -88,7 +89,7 @@ class AuthServiceTest {
         assertEquals("Registration successful. Please check your email for the OTP code.", response.get("message"));
 
         verify(userRepository, times(1)).findByEmail("test@test.com");
-        verify(passwordEncoder, times(1)).encode("password123");
+        verify(passwordEncoder, times(1)).encode("P@ssw0rd123");
         verify(userRepository, times(1)).save(any(User.class));
         verify(otpRepository, times(1)).save(any(EmailVerificationCode.class));
         verify(emailService, times(1)).sendOtpEmail(eq("test@test.com"), anyString());
@@ -256,8 +257,8 @@ class AuthServiceTest {
         when(userRepository.findByEmail("test@test.com")).thenReturn(Optional.of(user));
 
         // Act & Assert
-        IllegalStateException exception = assertThrows(IllegalStateException.class, 
-            () -> authService.login(request));
+        ConflictException exception = assertThrows(ConflictException.class,
+                () -> authService.login(request));
         assertEquals("Email not verified. Please verify your email first.", exception.getMessage());
     }
 
@@ -269,9 +270,9 @@ class AuthServiceTest {
 
         when(userRepository.findByEmail("missing@test.com")).thenReturn(Optional.empty());
 
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+        BadCredentialsException exception = assertThrows(BadCredentialsException.class,
                 () -> authService.login(request));
-        assertEquals("User not found", exception.getMessage());
+        assertEquals("Email or password is incorrect", exception.getMessage());
     }
 
     @Test
@@ -287,7 +288,9 @@ class AuthServiceTest {
         when(userRepository.findByEmail("test@test.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("wrong", "encoded_pass")).thenReturn(false);
 
-        assertThrows(BadCredentialsException.class, () -> authService.login(request));
+        BadCredentialsException exception = assertThrows(BadCredentialsException.class,
+                () -> authService.login(request));
+        assertEquals("Email or password is incorrect", exception.getMessage());
     }
 
     @Test
@@ -326,7 +329,7 @@ class AuthServiceTest {
         user.setIsEmailVerified(true);
         when(userRepository.findByEmail("test@test.com")).thenReturn(Optional.of(user));
 
-        IllegalStateException exception = assertThrows(IllegalStateException.class,
+        ConflictException exception = assertThrows(ConflictException.class,
                 () -> authService.resendOtp("test@test.com"));
         assertEquals("Email is already verified.", exception.getMessage());
     }

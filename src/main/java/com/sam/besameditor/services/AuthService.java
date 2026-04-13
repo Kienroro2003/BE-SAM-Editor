@@ -4,6 +4,7 @@ import com.sam.besameditor.dto.AuthResponse;
 import com.sam.besameditor.dto.LoginRequest;
 import com.sam.besameditor.dto.RegisterRequest;
 import com.sam.besameditor.dto.VerifyOtpRequest;
+import com.sam.besameditor.exceptions.ConflictException;
 import com.sam.besameditor.models.AuthProvider;
 import com.sam.besameditor.models.EmailVerificationCode;
 import com.sam.besameditor.models.RefreshToken;
@@ -25,6 +26,7 @@ import java.util.Map;
 
 @Service
 public class AuthService {
+    private static final String INVALID_LOGIN_MESSAGE = "Email or password is incorrect";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -109,7 +111,7 @@ public class AuthService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         if (user.getIsEmailVerified()) {
-            throw new IllegalStateException("Email is already verified.");
+            throw new ConflictException("Email is already verified.");
         }
 
         sendOtp(user);
@@ -121,14 +123,14 @@ public class AuthService {
      */
     public AuthResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                .orElseThrow(() -> new BadCredentialsException(INVALID_LOGIN_MESSAGE));
 
         if (!user.getIsEmailVerified()) {
-            throw new IllegalStateException("Email not verified. Please verify your email first.");
+            throw new ConflictException("Email not verified. Please verify your email first.");
         }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new BadCredentialsException("Invalid credentials");
+            throw new BadCredentialsException(INVALID_LOGIN_MESSAGE);
         }
 
         return issueAuthTokens(user);

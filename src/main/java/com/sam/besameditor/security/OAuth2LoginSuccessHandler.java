@@ -1,6 +1,7 @@
 package com.sam.besameditor.security;
 
 import com.sam.besameditor.dto.AuthResponse;
+import com.sam.besameditor.exceptions.ConflictException;
 import com.sam.besameditor.services.AuthService;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -8,6 +9,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
@@ -64,8 +66,18 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
                     request.getRequestURI(),
                     request.getRemoteAddr(),
                     ex);
-            String encodedError = URLEncoder.encode("GitHub login failed", StandardCharsets.UTF_8);
+            String encodedError = URLEncoder.encode(resolveSafeErrorMessage(ex), StandardCharsets.UTF_8);
             response.sendRedirect(redirectUri + "?error=" + encodedError);
         }
+    }
+
+    private String resolveSafeErrorMessage(Exception ex) {
+        if (ex instanceof BadCredentialsException || ex instanceof IllegalArgumentException || ex instanceof ConflictException) {
+            String message = ex.getMessage();
+            if (message != null && !message.isBlank()) {
+                return message;
+            }
+        }
+        return "GitHub login failed";
     }
 }

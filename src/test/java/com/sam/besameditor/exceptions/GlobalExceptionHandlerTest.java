@@ -25,93 +25,112 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void handleIllegalArgument_ShouldReturnBadRequest() {
-        ResponseEntity<Map<String, String>> response =
-                exceptionHandler.handleIllegalArgument(new IllegalArgumentException("invalid"));
+        ResponseEntity<?> response =
+                exceptionHandler.handleIllegalArgument(new IllegalArgumentException("invalid"), null);
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("invalid", response.getBody().get("message"));
+        assertEquals("invalid", bodyMessage(response));
     }
 
     @Test
     void handleIllegalArgument_ShouldUseFallbackMessage_WhenMessageIsNull() {
-        ResponseEntity<Map<String, String>> response =
-                exceptionHandler.handleIllegalArgument(new IllegalArgumentException());
+        ResponseEntity<?> response =
+                exceptionHandler.handleIllegalArgument(new IllegalArgumentException(), null);
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Invalid request", response.getBody().get("message"));
+        assertEquals("Invalid request", bodyMessage(response));
     }
 
     @Test
     void handleIllegalArgument_ShouldUseFallbackMessage_WhenMessageIsBlank() {
-        ResponseEntity<Map<String, String>> response =
-                exceptionHandler.handleIllegalArgument(new IllegalArgumentException("   "));
+        ResponseEntity<?> response =
+                exceptionHandler.handleIllegalArgument(new IllegalArgumentException("   "), null);
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Invalid request", response.getBody().get("message"));
+        assertEquals("Invalid request", bodyMessage(response));
     }
 
     @Test
     void handleBadCredentials_ShouldReturnUnauthorized() {
-        ResponseEntity<Map<String, String>> response =
-                exceptionHandler.handleBadCredentials(new BadCredentialsException("wrong"));
+        ResponseEntity<?> response =
+                exceptionHandler.handleBadCredentials(new BadCredentialsException("wrong"), null);
 
         assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
-        assertEquals("Invalid credentials", response.getBody().get("message"));
+        assertEquals("wrong", bodyMessage(response));
+    }
+
+    @Test
+    void handleBadCredentials_ShouldUseFallbackMessage_WhenMessageIsBlank() {
+        ResponseEntity<?> response =
+                exceptionHandler.handleBadCredentials(new BadCredentialsException("   "), null);
+
+        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
+        assertEquals("Invalid credentials", bodyMessage(response));
+    }
+
+    @Test
+    void handleConflict_ShouldReturnConflict() {
+        ResponseEntity<?> response =
+                exceptionHandler.handleConflict(new ConflictException("Email not verified. Please verify your email first."), null);
+
+        assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+        assertEquals("Email not verified. Please verify your email first.", bodyMessage(response));
     }
 
     @Test
     void handleNotFound_ShouldReturnNotFound() {
-        ResponseEntity<Map<String, String>> response =
-                exceptionHandler.handleNotFound(new NotFoundException("Workspace not found"));
+        ResponseEntity<?> response =
+                exceptionHandler.handleNotFound(new NotFoundException("Workspace not found"), null);
 
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-        assertEquals("Workspace not found", response.getBody().get("message"));
+        assertEquals("Workspace not found", bodyMessage(response));
     }
 
     @Test
     void handlePayloadTooLarge_ShouldReturn413() {
-        ResponseEntity<Map<String, String>> response =
-                exceptionHandler.handlePayloadTooLarge(new WorkspacePayloadTooLargeException("too large"));
+        ResponseEntity<?> response =
+                exceptionHandler.handlePayloadTooLarge(new WorkspacePayloadTooLargeException("too large"), null);
 
         assertEquals(HttpStatus.PAYLOAD_TOO_LARGE, response.getStatusCode());
-        assertEquals("too large", response.getBody().get("message"));
+        assertEquals("too large", bodyMessage(response));
     }
 
     @Test
     void handleMaxUploadSize_ShouldReturn413() {
-        ResponseEntity<Map<String, String>> response =
-                exceptionHandler.handleMaxUploadSize(new MaxUploadSizeExceededException(1024));
+        ResponseEntity<?> response =
+                exceptionHandler.handleMaxUploadSize(new MaxUploadSizeExceededException(1024), null);
 
         assertEquals(HttpStatus.PAYLOAD_TOO_LARGE, response.getStatusCode());
-        assertEquals("Uploaded file exceeds allowed size", response.getBody().get("message"));
+        assertEquals("Uploaded file exceeds allowed size", bodyMessage(response));
     }
 
     @Test
     void handleWorkspaceStorage_ShouldReturnInternalServerError() {
-        ResponseEntity<Map<String, String>> response =
-                exceptionHandler.handleWorkspaceStorage(new WorkspaceStorageException("storage failed", null));
+        ResponseEntity<?> response =
+                exceptionHandler.handleWorkspaceStorage(new WorkspaceStorageException("storage failed", null), null);
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertEquals("Failed to store repository source code on server", response.getBody().get("message"));
+        assertEquals("Failed to store repository source code on server", bodyMessage(response));
     }
 
     @Test
     void handleUpstreamService_ShouldReturnConfiguredStatus() {
-        ResponseEntity<Map<String, String>> response =
+        ResponseEntity<?> response =
                 exceptionHandler.handleUpstreamService(
-                        new UpstreamServiceException(HttpStatus.BAD_GATEWAY, "github failed"));
+                        new UpstreamServiceException(HttpStatus.BAD_GATEWAY, "github failed"),
+                        null);
 
         assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
-        assertEquals("github failed", response.getBody().get("message"));
+        assertEquals("github failed", bodyMessage(response));
     }
 
     @Test
     void handleDataIntegrityViolation_ShouldReturnConflict() {
-        ResponseEntity<Map<String, String>> response =
-                exceptionHandler.handleDataIntegrityViolation(new DataIntegrityViolationException("duplicate"));
+        ResponseEntity<?> response =
+                exceptionHandler.handleDataIntegrityViolation(new DataIntegrityViolationException("duplicate"), null);
 
         assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
-        assertEquals("Database constraint violation", response.getBody().get("message"));
+        assertEquals("Database constraint violation", bodyMessage(response));
     }
 
     @Test
@@ -122,10 +141,10 @@ class GlobalExceptionHandlerTest {
         bindingResult.addError(new ObjectError("obj", "Email is required"));
         MethodArgumentNotValidException exception = new MethodArgumentNotValidException(parameter, bindingResult);
 
-        ResponseEntity<Map<String, String>> response = exceptionHandler.handleValidation(exception);
+        ResponseEntity<?> response = exceptionHandler.handleValidation(exception, null);
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Email is required", response.getBody().get("message"));
+        assertEquals("Email is required", bodyMessage(response));
     }
 
     @Test
@@ -135,10 +154,10 @@ class GlobalExceptionHandlerTest {
         BeanPropertyBindingResult bindingResult = new BeanPropertyBindingResult(new Object(), "obj");
         MethodArgumentNotValidException exception = new MethodArgumentNotValidException(parameter, bindingResult);
 
-        ResponseEntity<Map<String, String>> response = exceptionHandler.handleValidation(exception);
+        ResponseEntity<?> response = exceptionHandler.handleValidation(exception, null);
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Validation error", response.getBody().get("message"));
+        assertEquals("Validation error", bodyMessage(response));
     }
 
     @Test
@@ -149,34 +168,40 @@ class GlobalExceptionHandlerTest {
         bindingResult.addError(new ObjectError("obj", null));
         MethodArgumentNotValidException exception = new MethodArgumentNotValidException(parameter, bindingResult);
 
-        ResponseEntity<Map<String, String>> response = exceptionHandler.handleValidation(exception);
+        ResponseEntity<?> response = exceptionHandler.handleValidation(exception, null);
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Validation error", response.getBody().get("message"));
+        assertEquals("Validation error", bodyMessage(response));
     }
 
     @Test
     void handleHttpMessageNotReadable_ShouldReturnBadRequest() {
-        ResponseEntity<Map<String, String>> response =
+        ResponseEntity<?> response =
                 exceptionHandler.handleHttpMessageNotReadable(
-                        new HttpMessageNotReadableException("bad json", new MockHttpInputMessage(new byte[0])));
+                        new HttpMessageNotReadableException("bad json", new MockHttpInputMessage(new byte[0])),
+                        null);
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Invalid JSON request body", response.getBody().get("message"));
+        assertEquals("Invalid JSON request body", bodyMessage(response));
     }
 
     @Test
     void handleUnexpected_ShouldReturnInternalServerError() {
-        ResponseEntity<Map<String, String>> response =
-                exceptionHandler.handleUnexpected(new RuntimeException("boom"));
+        ResponseEntity<?> response =
+                exceptionHandler.handleUnexpected(new RuntimeException("boom"), null);
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertEquals("Internal server error", response.getBody().get("message"));
+        assertEquals("Internal server error", bodyMessage(response));
     }
 
     @SuppressWarnings("unused")
     static class DummyController {
         public void dummy(@RequestBody Object body) {
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private String bodyMessage(ResponseEntity<?> response) {
+        return ((Map<String, String>) response.getBody()).get("message");
     }
 }
