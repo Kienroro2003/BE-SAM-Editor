@@ -11,6 +11,7 @@ import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Map;
@@ -57,35 +58,8 @@ public class AiRecommendationService {
 
         String userPrompt = buildUserPrompt(request);
 
-        Map<String, Object> payload = Map.of(
-                "model", groqModel,
-                "stream", true,
-                "temperature", 0.2,
-                "messages", List.of(
-                        Map.of("role", "system", "content", SYSTEM_PROMPT),
-                        Map.of("role", "user", "content", userPrompt)
-                )
-        );
-
-        return webClient.post()
-                .uri("/chat/completions")
-                .contentType(MediaType.APPLICATION_JSON)
-                .accept(MediaType.TEXT_EVENT_STREAM)
-                .header("Authorization", "Bearer " + apiKey)
-                .bodyValue(payload)
-                .retrieve()
-                .onStatus(status -> status.isError(), response -> response.bodyToMono(String.class)
-                        .defaultIfEmpty("Groq API error")
-                        .map(body -> {
-                            HttpStatus status = HttpStatus.resolve(response.statusCode().value());
-                            if (status == null) {
-                                status = HttpStatus.BAD_GATEWAY;
-                            }
-                            return new UpstreamServiceException(status, body);
-                        }))
-                .bodyToFlux(String.class)
-                .filter(chunk -> chunk != null && !chunk.isBlank())
-                .flatMap(this::parseSseChunk)
+        return requestStreamedTokens(userPrompt, apiKey)
+                .switchIfEmpty(requestSingleCompletion(userPrompt, apiKey))
                 .map(token -> ServerSentEvent.<String>builder(token).event("token").build())
                 .onErrorMap(ex -> {
                     if (ex instanceof UpstreamServiceException) {
@@ -95,13 +69,71 @@ public class AiRecommendationService {
                 });
     }
 
+    private Flux<String> requestStreamedTokens(String userPrompt, String apiKey) {
+        Map<String, Object> payload = buildPayload(userPrompt, true);
+        return webClient.post()
+                .uri("/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .header("Authorization", "Bearer " + apiKey)
+                .bodyValue(payload)
+                .retrieve()
+                .onStatus(status -> status.isError(), response -> response.bodyToMono(String.class)
+                        .defaultIfEmpty("Groq API error")
+                        .map(body -> buildUpstreamException(response.statusCode().value(), body)))
+                .bodyToFlux(String.class)
+                .filter(chunk -> chunk != null && !chunk.isBlank())
+                .flatMap(this::parseSseChunk);
+    }
+
+    private Flux<String> requestSingleCompletion(String userPrompt, String apiKey) {
+        Map<String, Object> payload = buildPayload(userPrompt, false);
+        return webClient.post()
+                .uri("/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + apiKey)
+                .bodyValue(payload)
+                .retrieve()
+                .onStatus(status -> status.isError(), response -> response.bodyToMono(String.class)
+                        .defaultIfEmpty("Groq API error")
+                        .map(body -> buildUpstreamException(response.statusCode().value(), body)))
+                .bodyToMono(String.class)
+                .flatMapMany(this::extractCompletionContent);
+    }
+
+    private Map<String, Object> buildPayload(String userPrompt, boolean stream) {
+        return Map.of(
+                "model", groqModel,
+                "stream", stream,
+                "temperature", 0.2,
+                "messages", List.of(
+                        Map.of("role", "system", "content", SYSTEM_PROMPT),
+                        Map.of("role", "user", "content", userPrompt)
+                )
+        );
+    }
+
+    private UpstreamServiceException buildUpstreamException(int rawStatusCode, String body) {
+        HttpStatus status = HttpStatus.resolve(rawStatusCode);
+        if (status == null) {
+            status = HttpStatus.BAD_GATEWAY;
+        }
+        return new UpstreamServiceException(status, body);
+    }
+
     private Flux<String> parseSseChunk(String rawChunk) {
         String[] lines = rawChunk.split("\\r?\\n");
-        return Flux.fromArray(lines)
+        Flux<String> parsed = Flux.fromArray(lines)
                 .filter(line -> line.startsWith("data:"))
                 .map(line -> line.substring(5).trim())
                 .filter(data -> !data.isBlank() && !"[DONE]".equals(data))
                 .flatMap(this::extractContentToken);
+
+        return parsed.switchIfEmpty(Mono.justOrEmpty(rawChunk)
+            .map(String::trim)
+            .filter(chunk -> !chunk.isBlank() && !chunk.startsWith("data:"))
+            .flatMapMany(this::extractContentToken));
     }
 
     private Flux<String> extractContentToken(String jsonLine) {
@@ -126,6 +158,35 @@ public class AiRecommendationService {
             return Flux.just(content);
         } catch (JsonProcessingException ex) {
             return Flux.empty();
+        }
+    }
+
+    private Flux<String> extractCompletionContent(String rawJson) {
+        try {
+            Map<String, Object> data = objectMapper.readValue(rawJson, Map.class);
+            Object choicesObj = data.get("choices");
+            if (!(choicesObj instanceof List<?> choices) || choices.isEmpty()) {
+                return Flux.error(new IllegalStateException("Groq completion response did not include choices"));
+            }
+
+            Object firstChoiceObj = choices.get(0);
+            if (!(firstChoiceObj instanceof Map<?, ?> firstChoice)) {
+                return Flux.error(new IllegalStateException("Groq completion choice is invalid"));
+            }
+
+            Object messageObj = firstChoice.get("message");
+            if (!(messageObj instanceof Map<?, ?> message)) {
+                return Flux.error(new IllegalStateException("Groq completion message is missing"));
+            }
+
+            Object contentObj = message.get("content");
+            if (!(contentObj instanceof String content) || content.isBlank()) {
+                return Flux.error(new IllegalStateException("Groq completion content is empty"));
+            }
+
+            return Flux.just(content);
+        } catch (JsonProcessingException ex) {
+            return Flux.error(new IllegalStateException("Unable to parse Groq completion response", ex));
         }
     }
 

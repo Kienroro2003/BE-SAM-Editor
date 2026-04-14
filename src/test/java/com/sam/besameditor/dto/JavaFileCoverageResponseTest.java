@@ -32,6 +32,10 @@ class JavaFileCoverageResponseTest {
         String json = objectMapper.writeValueAsString(response);
 
         assertTrue(json.contains("\"status\":\"FAILED\""));
+        assertTrue(json.contains("\"coveredLines\":[]"));
+        assertTrue(json.contains("\"uncoveredLines\":[]"));
+        assertTrue(json.contains("\"coveredBranches\":[]"));
+        assertTrue(json.contains("\"uncoveredBranches\":[]"));
         assertFalse(json.contains("\"stdout\""));
         assertFalse(json.contains("\"stderr\""));
     }

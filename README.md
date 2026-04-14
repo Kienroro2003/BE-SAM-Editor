@@ -42,8 +42,20 @@ docker run --rm -p 8080:8080 \
   -e APP_OAUTH2_REDIRECT_URI='http://localhost:3000/oauth2/success' \
   -e GITHUB_CLIENT_ID='your-github-client-id' \
   -e GITHUB_CLIENT_SECRET='your-github-client-secret' \
+  -e GROQ_API_KEY='your-groq-api-key' \
+  -e APP_AI_GROQ_MODEL='llama-3.3-70b-versatile' \
   be-sam-editor-backend
 ```
+
+### AI Suggest Tests (Groq)
+
+The endpoint `POST /api/ai/suggest-tests` is used by FE after a coverage run.
+
+- It requires a valid JWT (same auth flow as other `/api/**` endpoints).
+- It requires `GROQ_API_KEY`.
+- Optional tuning:
+  - `APP_AI_GROQ_BASE_URL` (default `https://api.groq.com/openai/v1`)
+  - `APP_AI_GROQ_MODEL` (default `llama-3.3-70b-versatile`)
 
 ### 4) Push the image to Docker Hub manually
 

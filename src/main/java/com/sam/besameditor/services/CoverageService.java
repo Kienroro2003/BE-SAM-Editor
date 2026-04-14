@@ -181,6 +181,7 @@ public class CoverageService {
                         overlayAvailable,
                         flowGraphsByFunctionId.get(function.getId())))
                 .toList();
+        CoverageSnapshot coverageSnapshot = buildCoverageSnapshot(savedRun.getStatus(), effectiveLineStats, summaries);
 
         return new JavaFileCoverageResponse(
                 savedRun.getId(),
@@ -195,7 +196,11 @@ public class CoverageService {
                 savedRun.getStderrText(),
                 savedRun.getStartedAt(),
                 savedRun.getCompletedAt(),
-                summaries);
+                summaries,
+                coverageSnapshot.coveredLines(),
+                coverageSnapshot.uncoveredLines(),
+                coverageSnapshot.coveredBranches(),
+                coverageSnapshot.uncoveredBranches());
     }
 
     private void logSandboxExecution(SourceContext sourceContext, SandboxCoverageExecutionResult executionResult) {
@@ -566,6 +571,65 @@ public class CoverageService {
         return List.of();
     }
 
+    private CoverageSnapshot buildCoverageSnapshot(
+            CoverageRunStatus runStatus,
+            List<CoverageLineStat> lineStats,
+            List<CoverageFunctionSummaryResponse> summaries) {
+        if (runStatus == CoverageRunStatus.SUCCEEDED && lineStats != null && !lineStats.isEmpty()) {
+            List<Integer> coveredLines = lineStats.stream()
+                    .filter(CoverageLineStat::isExecutable)
+                    .filter(CoverageLineStat::isCovered)
+                    .map(CoverageLineStat::lineNumber)
+                    .distinct()
+                    .sorted()
+                    .toList();
+            List<Integer> uncoveredLines = lineStats.stream()
+                    .filter(CoverageLineStat::isExecutable)
+                    .filter(line -> !line.isCovered())
+                    .map(CoverageLineStat::lineNumber)
+                    .distinct()
+                    .sorted()
+                    .toList();
+
+            return new CoverageSnapshot(
+                    coveredLines,
+                    uncoveredLines,
+                    expandBranchIds(lineStats, true),
+                    expandBranchIds(lineStats, false));
+        }
+
+        if (runStatus == CoverageRunStatus.NO_TESTS_FOUND && summaries != null && !summaries.isEmpty()) {
+            List<Integer> uncoveredLines = summaries.stream()
+                    .flatMapToInt(summary -> IntStream.rangeClosed(
+                            summary.getStartLine(),
+                            Math.max(summary.getStartLine(), summary.getEndLine())))
+                    .distinct()
+                    .sorted()
+                    .boxed()
+                    .toList();
+            List<String> uncoveredBranches = summaries.stream()
+                    .flatMap(summary -> IntStream.rangeClosed(1, Math.max(summary.getMissedBranchCount(), 0))
+                            .mapToObj(index -> "F" + summary.getFunctionId() + "#M" + index))
+                    .toList();
+
+            return new CoverageSnapshot(List.of(), uncoveredLines, List.of(), uncoveredBranches);
+        }
+
+        return CoverageSnapshot.empty();
+    }
+
+    private List<String> expandBranchIds(List<CoverageLineStat> lineStats, boolean covered) {
+        String marker = covered ? "C" : "M";
+        return lineStats.stream()
+                .filter(CoverageLineStat::isExecutable)
+                .flatMap(line -> {
+                    int branchCount = covered ? line.coveredBranches() : line.missedBranches();
+                    return IntStream.rangeClosed(1, Math.max(branchCount, 0))
+                            .mapToObj(index -> "L" + line.lineNumber() + "#" + marker + index);
+                })
+                .toList();
+    }
+
     private String toJacocoSourceKey(String normalizedPath) {
         String unixPath = normalizedPath.replace('\\', '/');
         for (String sourcePrefix : List.of("src/main/java/", "src/test/java/")) {
@@ -619,6 +683,7 @@ public class CoverageService {
 
     private SourceContext resolveSourceContext(Long projectId, String rawPath, String userEmail) {
         User user = userRepository.findByEmail(userEmail)
+            .or(() -> userRepository.findByGithubId(userEmail))
                 .orElseThrow(() -> new NotFoundException("User not found"));
         Project project = projectRepository.findByIdAndUser_Id(projectId, user.getId())
                 .orElseThrow(() -> new NotFoundException("Workspace not found"));
@@ -723,5 +788,16 @@ public class CoverageService {
             int missedLineCount,
             int coveredBranchCount,
             int missedBranchCount) {
+    }
+
+    private record CoverageSnapshot(
+            List<Integer> coveredLines,
+            List<Integer> uncoveredLines,
+            List<String> coveredBranches,
+            List<String> uncoveredBranches) {
+
+        private static CoverageSnapshot empty() {
+            return new CoverageSnapshot(List.of(), List.of(), List.of(), List.of());
+        }
     }
 }

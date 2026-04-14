@@ -3,9 +3,11 @@ package com.sam.besameditor.config;
 import com.sam.besameditor.security.CustomUserDetailsService;
 import com.sam.besameditor.security.JwtAuthenticationFilter;
 import com.sam.besameditor.security.OAuth2LoginSuccessHandler;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -18,10 +20,19 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
+
+    private static final RequestMatcher API_REQUEST_MATCHER =
+            request -> request.getRequestURI() != null && request.getRequestURI().startsWith("/api/");
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final CustomUserDetailsService userDetailsService;
@@ -45,8 +56,10 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(AbstractHttpConfigurer::disable)
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 // Auth endpoints — public
                 .requestMatchers(
                     "/api/auth/register",
@@ -69,8 +82,15 @@ public class SecurityConfig {
                 // Everything else requires authentication
                 .anyRequest().authenticated()
             )
+            .exceptionHandling(exceptions -> exceptions
+                .defaultAuthenticationEntryPointFor((request, response, authException) -> {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    response.getWriter().write("{\"message\":\"Unauthorized\"}");
+                }, API_REQUEST_MATCHER)
+            )
             .sessionManagement(session ->
-                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
             )
             .authenticationProvider(authenticationProvider())
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
@@ -92,5 +112,19 @@ public class SecurityConfig {
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(List.of("http://localhost:3000"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"));
+        config.setAllowCredentials(true);
+        config.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
     }
 }

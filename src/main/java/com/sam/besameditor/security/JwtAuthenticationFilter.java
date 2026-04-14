@@ -40,7 +40,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             String userEmail = jwtService.extractUsername(jwt);
 
-            if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            if (userEmail != null) {
                 UserDetails userDetails = userDetailsService.loadUserByUsername(userEmail);
                 if (jwtService.isTokenValid(jwt, userDetails)) {
                     UsernamePasswordAuthenticationToken authToken =
@@ -50,9 +50,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
             }
         } catch (UsernameNotFoundException ignored) {
-            SecurityContextHolder.clearContext();
+            // Ignore invalid bearer token so other auth mechanisms (e.g. session) can continue.
         } catch (Exception ignored) {
-            SecurityContextHolder.clearContext();
+            // Ignore malformed/expired token and proceed without JWT authentication.
         }
 
         filterChain.doFilter(request, response);

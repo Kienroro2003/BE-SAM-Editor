@@ -156,6 +156,10 @@ class CoverageServiceTest {
         assertEquals("COVERED", response.getFunctions().get(0).getCoverageStatus());
         assertEquals(1, response.getFunctions().get(0).getCoveredLineCount());
         assertEquals(1, response.getFunctions().get(0).getMissedLineCount());
+        assertEquals(List.of(10), response.getCoveredLines());
+        assertEquals(List.of(11), response.getUncoveredLines());
+        assertEquals(List.of(), response.getCoveredBranches());
+        assertEquals(List.of(), response.getUncoveredBranches());
     }
 
     @Test
@@ -228,6 +232,8 @@ class CoverageServiceTest {
         assertEquals("SUCCEEDED", response.getStatus());
         assertEquals(1, response.getFunctions().size());
         assertEquals("COVERED", response.getFunctions().get(0).getCoverageStatus());
+        assertEquals(List.of(10), response.getCoveredLines());
+        assertEquals(List.of(), response.getUncoveredLines());
         verify(cloudinaryWorkspaceStorageService).restoreWorkspaceArchive(
                 any(Path.class),
                 eq("workspace-archive"),
@@ -291,6 +297,8 @@ class CoverageServiceTest {
         assertEquals("COVERED", response.getFunctions().get(0).getCoverageStatus());
         assertEquals(1, response.getFunctions().get(0).getCoveredLineCount());
         assertEquals(1, response.getFunctions().get(0).getMissedLineCount());
+        assertEquals(List.of(1), response.getCoveredLines());
+        assertEquals(List.of(2), response.getUncoveredLines());
     }
 
     @Test
@@ -357,6 +365,9 @@ class CoverageServiceTest {
         assertEquals(2, response.getFunctions().get(0).getMissedLineCount());
         assertEquals(0, response.getFunctions().get(0).getCoveredBranchCount());
         assertEquals(2, response.getFunctions().get(0).getMissedBranchCount());
+        assertEquals(List.of(), response.getCoveredLines());
+        assertEquals(List.of(1, 2), response.getUncoveredLines());
+        assertEquals(2, response.getUncoveredBranches().size());
         verify(coverageReportParser, never()).parse(any(Path.class));
     }
 
@@ -417,6 +428,9 @@ class CoverageServiceTest {
         assertEquals(2, response.getFunctions().get(0).getMissedLineCount());
         assertEquals(0, response.getFunctions().get(0).getCoveredBranchCount());
         assertEquals(2, response.getFunctions().get(0).getMissedBranchCount());
+        assertEquals(List.of(), response.getCoveredLines());
+        assertEquals(List.of(10, 11, 12), response.getUncoveredLines());
+        assertEquals(2, response.getUncoveredBranches().size());
         verify(coverageReportParser, never()).parse(any(Path.class));
     }
 

@@ -188,6 +188,7 @@ public class AuthService {
     @Transactional
     public Map<String, String> logoutAllByEmail(String email) {
         User user = userRepository.findByEmail(email)
+            .or(() -> userRepository.findByGithubId(email))
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         refreshTokenService.deleteByUserId(user.getId());
         return Map.of("message", "Logged out from all devices successfully.");

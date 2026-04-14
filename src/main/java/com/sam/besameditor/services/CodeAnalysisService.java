@@ -437,6 +437,7 @@ public class CodeAnalysisService {
 
     private User findUserByEmail(String email) {
         return userRepository.findByEmail(email)
+            .or(() -> userRepository.findByGithubId(email))
                 .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
