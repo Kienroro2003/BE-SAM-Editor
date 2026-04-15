@@ -4,20 +4,24 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sam.besameditor.dto.AiSuggestTestsRequest;
 import com.sam.besameditor.exceptions.UpstreamServiceException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Map;
 
 @Service
 public class AiRecommendationService {
+
+    private static final Logger log = LoggerFactory.getLogger(AiRecommendationService.class);
 
     private static final String SYSTEM_PROMPT = """
             You are an expert software testing assistant. Your ONLY job is to suggest additional test cases to improve code coverage.
@@ -33,8 +37,12 @@ public class AiRecommendationService {
             OUTPUT FORMAT:
             For each suggestion, provide:
 
-            A brief explanation (1-2 lines) of what is uncovered and why
-            The suggested test code snippet
+            1) A short title in markdown bold, e.g. **Test for ...**
+            2) A brief explanation (1-2 lines) in normal text
+            3) A fenced code block with explicit language, e.g. ```java ... ```
+
+            Leave exactly one blank line between title, explanation, and code block.
+            Never collapse words together. Keep spaces and punctuation natural.
             """;
 
     private final WebClient webClient;
@@ -58,8 +66,20 @@ public class AiRecommendationService {
 
         String userPrompt = buildUserPrompt(request);
 
-        return requestStreamedTokens(userPrompt, apiKey)
-                .switchIfEmpty(requestSingleCompletion(userPrompt, apiKey))
+        Flux<String> completionFallback = Flux.defer(() -> requestSingleCompletion(userPrompt, apiKey));
+        Flux<String> resolvedTokenStream = requestStreamedTokens(userPrompt, apiKey)
+                .onErrorResume(ex -> {
+                    // Keep upstream/provider errors as-is; fallback only for stream parsing/codec issues.
+                    if (ex instanceof UpstreamServiceException) {
+                        return Flux.error(ex);
+                    }
+
+                    log.warn("AI stream decoding failed, falling back to non-stream completion", ex);
+                    return completionFallback;
+                })
+                .switchIfEmpty(completionFallback);
+
+        return resolvedTokenStream
                 .map(token -> ServerSentEvent.<String>builder(token).event("token").build())
                 .onErrorMap(ex -> {
                     if (ex instanceof UpstreamServiceException) {
@@ -81,9 +101,10 @@ public class AiRecommendationService {
                 .onStatus(status -> status.isError(), response -> response.bodyToMono(String.class)
                         .defaultIfEmpty("Groq API error")
                         .map(body -> buildUpstreamException(response.statusCode().value(), body)))
-                .bodyToFlux(String.class)
-                .filter(chunk -> chunk != null && !chunk.isBlank())
-                .flatMap(this::parseSseChunk);
+                .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
+                .map(ServerSentEvent::data)
+                .filter(data -> data != null && !data.isBlank() && !"[DONE]".equals(data))
+                .flatMap(this::extractContentToken);
     }
 
     private Flux<String> requestSingleCompletion(String userPrompt, String apiKey) {
@@ -122,20 +143,6 @@ public class AiRecommendationService {
         return new UpstreamServiceException(status, body);
     }
 
-    private Flux<String> parseSseChunk(String rawChunk) {
-        String[] lines = rawChunk.split("\\r?\\n");
-        Flux<String> parsed = Flux.fromArray(lines)
-                .filter(line -> line.startsWith("data:"))
-                .map(line -> line.substring(5).trim())
-                .filter(data -> !data.isBlank() && !"[DONE]".equals(data))
-                .flatMap(this::extractContentToken);
-
-        return parsed.switchIfEmpty(Mono.justOrEmpty(rawChunk)
-            .map(String::trim)
-            .filter(chunk -> !chunk.isBlank() && !chunk.startsWith("data:"))
-            .flatMapMany(this::extractContentToken));
-    }
-
     private Flux<String> extractContentToken(String jsonLine) {
         try {
             Map<String, Object> data = objectMapper.readValue(jsonLine, Map.class);
@@ -152,7 +159,7 @@ public class AiRecommendationService {
                 return Flux.empty();
             }
             Object contentObj = delta.get("content");
-            if (!(contentObj instanceof String content) || content.isBlank()) {
+            if (!(contentObj instanceof String content) || content.isEmpty()) {
                 return Flux.empty();
             }
             return Flux.just(content);

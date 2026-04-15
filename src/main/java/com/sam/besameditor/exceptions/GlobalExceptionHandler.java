@@ -53,7 +53,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(UpstreamServiceException.class)
     public ResponseEntity<Map<String, String>> handleUpstreamService(UpstreamServiceException ex) {
-        return ResponseEntity.status(ex.getStatus()).body(Map.of("message", ex.getMessage()));
+        HttpStatus status = ex.getStatus() != null ? ex.getStatus() : HttpStatus.BAD_GATEWAY;
+        return ResponseEntity.status(status).body(Map.of("message", resolveMessage(ex, "Upstream service error")));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
